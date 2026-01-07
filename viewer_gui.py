@@ -15,75 +15,83 @@ def run_viewer(list_boards: Callable[[], list]):
     except Exception:
         pass
 
-    # Filters toolbar
-    filter_bar = ttk.LabelFrame(root, text="Filters")
-    filter_bar.pack(fill="x", padx=10, pady=(10, 4))
-    ttk.Label(filter_bar, text="Site Name:").grid(row=0, column=0, padx=6, pady=4, sticky="w")
-    cmb_site = ttk.Combobox(filter_bar, values=["All"], state="readonly", width=22)
-    cmb_site.set("All")
-    cmb_site.grid(row=0, column=1, padx=6, pady=4, sticky="w")
-    ttk.Label(filter_bar, text="Size:").grid(row=0, column=2, padx=6, pady=4, sticky="w")
-    cmb_size = ttk.Combobox(filter_bar, values=["All"], state="readonly", width=14)
-    cmb_size.set("All")
-    cmb_size.grid(row=0, column=3, padx=6, pady=4, sticky="w")
-    ttk.Label(filter_bar, text="Done by:").grid(row=0, column=4, padx=6, pady=4, sticky="w")
-    cmb_user = ttk.Combobox(filter_bar, values=["All"], state="readonly", width=18)
-    cmb_user.set("All")
-    cmb_user.grid(row=0, column=5, padx=6, pady=4, sticky="w")
-    ttk.Label(filter_bar, text="Urgency:").grid(row=0, column=6, padx=6, pady=4, sticky="w")
-    cmb_urg = ttk.Combobox(filter_bar, values=["All", "Yes", "No"], state="readonly", width=8)
-    cmb_urg.set("All")
-    cmb_urg.grid(row=0, column=7, padx=6, pady=4, sticky="w")
-    ttk.Label(filter_bar, text="Month(s) by Date Request:").grid(row=1, column=0, padx=6, pady=4, sticky="w")
-    months_frame = ttk.Frame(filter_bar)
-    months_frame.grid(row=1, column=1, columnspan=3, padx=6, pady=4, sticky="w")
+    # Hidden filter state; open via button
     month_names = [
         "January","February","March","April","May","June",
         "July","August","September","October","November","December"
     ]
-    month_vars = {m: tk.BooleanVar(value=False) for m in month_names}
-    # Lay out checkboxes in two rows for clarity
-    for idx, m in enumerate(month_names):
-        r = 0 if idx < 6 else 1
-        c = idx if idx < 6 else idx - 6
-        ttk.Checkbutton(months_frame, text=m, variable=month_vars[m]).grid(row=r, column=c, padx=4, pady=2, sticky="w")
-    def select_all_months():
-        for v in month_vars.values():
-            v.set(True)
-    def clear_all_months():
-        for v in month_vars.values():
-            v.set(False)
-    ttk.Button(months_frame, text="All", command=select_all_months).grid(row=2, column=0, padx=4, pady=2, sticky="w")
-    ttk.Button(months_frame, text="None", command=clear_all_months).grid(row=2, column=1, padx=4, pady=2, sticky="w")
+    site_q = tk.StringVar(value="All")
+    size_q = tk.StringVar(value="All")
+    user_q = tk.StringVar(value="All")
+    urg_q = tk.StringVar(value="All")
+    sort_q = tk.StringVar(value="None")
+    month_q = {m: tk.BooleanVar(value=False) for m in month_names}
 
-    ttk.Label(filter_bar, text="Sort by:").grid(row=1, column=4, padx=6, pady=4, sticky="w")
-    cmb_sort = ttk.Combobox(filter_bar, state="readonly", width=28, values=[
-        "None",
-        "Date Request: Newest first",
-        "Date Request: Oldest first",
-        "Module Number: Ascending",
-        "Module Number: Descending",
-    ])
-    cmb_sort.set("None")
-    cmb_sort.grid(row=1, column=5, columnspan=2, padx=6, pady=4, sticky="w")
-
-    def clear_filters():
-        cmb_site.set("All")
-        cmb_size.set("All")
-        cmb_user.set("All")
-        cmb_urg.set("All")
-        cmb_sort.set("None")
-        clear_all_months()
-        refresh()
-    ttk.Button(filter_bar, text="Apply", command=lambda: refresh()).grid(row=0, column=8, padx=6, pady=4)
-    ttk.Button(filter_bar, text="Clear", command=clear_filters).grid(row=0, column=9, padx=6, pady=4)
+    def open_filters_dialog():
+        win = tk.Toplevel(root)
+        win.title("Filters & Sort")
+        try:
+            import os
+            ico_path = os.path.join(os.path.dirname(__file__), 'assets', 'app.ico')
+            if os.path.exists(ico_path):
+                win.iconbitmap(ico_path)
+        except Exception:
+            pass
+        frm = ttk.Frame(win)
+        frm.pack(fill="both", expand=True, padx=10, pady=10)
+        boards = list_boards()
+        sites = ["All"] + sorted({b.get("name") or "-" for b in boards if b.get("name")})
+        sizes = ["All"] + sorted({b.get("size") or "-" for b in boards if b.get("size")})
+        users = ["All"] + sorted({b.get("created_by") or "-" for b in boards if b.get("created_by")})
+        ttk.Label(frm, text="Site Name:").grid(row=0, column=0, padx=6, pady=4, sticky="w")
+        cmb_site = ttk.Combobox(frm, values=sites, state="readonly", width=22, textvariable=site_q)
+        cmb_site.grid(row=0, column=1, padx=6, pady=4, sticky="w")
+        ttk.Label(frm, text="Size:").grid(row=0, column=2, padx=6, pady=4, sticky="w")
+        cmb_size = ttk.Combobox(frm, values=sizes, state="readonly", width=14, textvariable=size_q)
+        cmb_size.grid(row=0, column=3, padx=6, pady=4, sticky="w")
+        ttk.Label(frm, text="Done by:").grid(row=0, column=4, padx=6, pady=4, sticky="w")
+        cmb_user = ttk.Combobox(frm, values=users, state="readonly", width=18, textvariable=user_q)
+        cmb_user.grid(row=0, column=5, padx=6, pady=4, sticky="w")
+        ttk.Label(frm, text="Urgency:").grid(row=0, column=6, padx=6, pady=4, sticky="w")
+        cmb_urg = ttk.Combobox(frm, values=["All", "Yes", "No"], state="readonly", width=8, textvariable=urg_q)
+        cmb_urg.grid(row=0, column=7, padx=6, pady=4, sticky="w")
+        ttk.Label(frm, text="Month(s) by Date Request:").grid(row=1, column=0, padx=6, pady=4, sticky="w")
+        months_frame = ttk.Frame(frm)
+        months_frame.grid(row=1, column=1, columnspan=3, padx=6, pady=4, sticky="w")
+        for idx, m in enumerate(month_names):
+            r = 0 if idx < 6 else 1
+            c = idx if idx < 6 else idx - 6
+            ttk.Checkbutton(months_frame, text=m, variable=month_q[m]).grid(row=r, column=c, padx=4, pady=2, sticky="w")
+        def select_all_months():
+            for v in month_q.values(): v.set(True)
+        def clear_all_months():
+            for v in month_q.values(): v.set(False)
+        ttk.Button(months_frame, text="All", command=select_all_months).grid(row=2, column=0, padx=4, pady=2, sticky="w")
+        ttk.Button(months_frame, text="None", command=clear_all_months).grid(row=2, column=1, padx=4, pady=2, sticky="w")
+        ttk.Label(frm, text="Sort by:").grid(row=1, column=4, padx=6, pady=4, sticky="w")
+        cmb_sort = ttk.Combobox(frm, state="readonly", width=28, textvariable=sort_q, values=[
+            "None",
+            "Date Request: Newest first",
+            "Date Request: Oldest first",
+            "Module Number: Ascending",
+            "Module Number: Descending",
+        ])
+        cmb_sort.grid(row=1, column=5, columnspan=2, padx=6, pady=4, sticky="w")
+        def on_ok():
+            refresh()
+            win.destroy()
+        def on_clear():
+            site_q.set("All"); size_q.set("All"); user_q.set("All"); urg_q.set("All"); sort_q.set("None"); clear_all_months()
+        ttk.Button(frm, text="OK", command=on_ok).grid(row=2, column=6, padx=6, pady=4, sticky="e")
+        ttk.Button(frm, text="Clear", command=on_clear).grid(row=2, column=5, padx=6, pady=4, sticky="e")
 
     # Table of boards (read-only)
     frame = ttk.Frame(root)
     frame.pack(fill="both", expand=True, padx=10, pady=(4, 10))
 
+    selected_ids = set()
     columns = (
-        "ID", "Site Name", "IC", "DC", "Size", "Module Number", "Pixel", "Board Code", "Running No",
+        "Select", "ID", "Site Name", "IC", "DC", "Size", "Module Number", "Pixel", "Board Code", "Running No",
         "Date Request", "DO Date", "Date Repair", "Before Photo", "After Photo", "Urgency", "Added by"
     )
     tree = ttk.Treeview(frame, columns=columns, show="headings", selectmode="extended")
@@ -101,6 +109,7 @@ def run_viewer(list_boards: Callable[[], list]):
     for col in columns:
         tree.heading(col, text=col, command=lambda c=col: on_sort(c))
         width = 120
+        if col in {"Select"}: width = 70
         if col in {"ID", "IC", "DC"}: width = 80
         if col in {"Size", "Pixel", "Running No"}: width = 90
         if col in {"Urgency"}: width = 80
@@ -121,20 +130,13 @@ def run_viewer(list_boards: Callable[[], list]):
             tree.delete(i)
         boards = list_boards()
         # Update selectable values from database
-        users = sorted({b.get("created_by") or "-" for b in boards if b.get("created_by")})
-        cmb_user.configure(values=["All"] + users)
-        sites = sorted({b.get("name") or "-" for b in boards if b.get("name")})
-        sizes = sorted({b.get("size") or "-" for b in boards if b.get("size")})
-        cmb_site.configure(values=["All"] + sites)
-        cmb_size.configure(values=["All"] + sizes)
-
-        # Apply filters
-        site_choice = cmb_site.get()
-        size_choice = cmb_size.get()
-        user_q = cmb_user.get()
-        urg_q = cmb_urg.get()
+        # Apply filters from dialog state
+        site_choice = site_q.get()
+        size_choice = size_q.get()
+        user_choice = user_q.get()
+        urg_choice = urg_q.get()
         # Month selections (by Date Request)
-        sel_months = [m for m in month_names if month_vars[m].get()]
+        sel_months = [m for m in month_names if month_q[m].get()]
         month_map = {
             "January": 1, "February": 2, "March": 3, "April": 4, "May": 5, "June": 6,
             "July": 7, "August": 8, "September": 9, "October": 10, "November": 11, "December": 12
@@ -144,10 +146,10 @@ def run_viewer(list_boards: Callable[[], list]):
                 return False
             if size_choice and size_choice != "All" and (b.get("size") or "-") != size_choice:
                 return False
-            if user_q and user_q != "All" and (b.get("created_by") or "-") != user_q:
+            if user_choice and user_choice != "All" and (b.get("created_by") or "-") != user_choice:
                 return False
-            if urg_q != "All":
-                want = True if urg_q == "Yes" else False
+            if urg_choice != "All":
+                want = True if urg_choice == "Yes" else False
                 if bool(b.get("urgency", False)) != want:
                     return False
             if sel_months:
@@ -168,7 +170,7 @@ def run_viewer(list_boards: Callable[[], list]):
         # Sorting
         col = sort_state["col"]
         rev = sort_state["reverse"]
-        sort_choice = cmb_sort.get()
+        sort_choice = sort_q.get()
         def key_for(b):
             if col == "ID":
                 s = str(b.get("board_id") or "")
@@ -215,7 +217,9 @@ def run_viewer(list_boards: Callable[[], list]):
             boards.sort(key=key_for, reverse=rev)
 
         for b in boards:
+            chk = "☑" if b.get("board_id") in selected_ids else "☐"
             tree.insert("", "end", values=(
+                chk,
                 b.get("board_id"),
                 b.get("name"),
                 b.get("ic"),
@@ -237,8 +241,25 @@ def run_viewer(list_boards: Callable[[], list]):
     # Toolbar
     toolbar = ttk.Frame(root)
     toolbar.pack(fill="x", padx=10, pady=6)
+    ttk.Button(toolbar, text="Filters...", command=open_filters_dialog).pack(side="left")
     ttk.Button(toolbar, text="Refresh", command=refresh).pack(side="left")
     ttk.Button(toolbar, text="Close", command=root.destroy).pack(side="right")
+
+    # Toggle checkbox via click on first column
+    def on_tree_click(event):
+        col = tree.identify_column(event.x)
+        row = tree.identify_row(event.y)
+        if col == "#1" and row:
+            vals = tree.item(row, "values")
+            bid = vals[1]
+            if bid in selected_ids:
+                selected_ids.remove(bid)
+            else:
+                selected_ids.add(bid)
+            new_chk = "☑" if bid in selected_ids else "☐"
+            tree.item(row, values=(new_chk,)+tuple(vals[1:]))
+            return
+    tree.bind("<Button-1>", on_tree_click, add="+")
 
     refresh()
     root.grab_set()

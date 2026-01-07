@@ -182,6 +182,8 @@ def add_board(
 	before_rel = _store_photo(before_photo, "before")
 	after_rel = _store_photo(after_photo, "after")
 
+	# Merge: if pixel not provided, use size
+	pixel = pixel or size
 	board = {
 		"board_id": str(board_id),
 		"name": name,

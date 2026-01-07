@@ -56,6 +56,11 @@ def run_gui(
 
         frm_form = ttk.LabelFrame(frm_root, text="Board Details")
         frm_form.pack(fill="x", padx=10, pady=10)
+        # Hide the static form; use pop-up dialogs for add/edit
+        try:
+            frm_form.pack_forget()
+        except Exception:
+            pass
 
         # Simple tooltip helper
         class ToolTip:
@@ -241,7 +246,7 @@ def run_gui(
                 ToolTip(q, tooltip)
             right_row += 1
 
-        add_field("Pixel", "pixel", "Pixel/pitch or format (e.g., 40x20 or 64x64)")
+        # Pixel removed; merged conceptually with Size
         add_field("Board Code", "board_code", "Internal board code / part number")
         add_field("Running No", "running_no", "Running/serial number for tracking")
         add_field("Date Request", "date_request", "Date when repair/inspection was requested", is_date=True)
@@ -259,14 +264,84 @@ def run_gui(
         frm_btn = ttk.Frame(frm_root)
         frm_btn.pack(fill="x", padx=10, pady=6)
 
+        # Quantity moved to Add dialog; toolbar remains clean
+
         frm_table = ttk.Frame(frm_root)
         frm_table.pack(fill="both", expand=True, padx=10, pady=10)
 
-        columns = ("ID", "Site Name", "IC", "DC", "Size")
+        # Hidden filter state and a button to open a pop-up dialog
+        def unique_values(key):
+            vals = sorted({(b.get(key) or "") for b in list_boards() if b.get(key)})
+            return ["All"] + vals
+        site_var = tk.StringVar(value="All")
+        size_var = tk.StringVar(value="All")
+        user_var = tk.StringVar(value="All")
+        urg_var = tk.StringVar(value="All")
+        sort_var = tk.StringVar(value="Date Request (Newest)")
+        month_names = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
+        month_vars = {m: tk.BooleanVar(value=False) for m in month_names}
+
+        def open_filters_dialog():
+            win = tk.Toplevel(frm_root)
+            win.title("Filters & Sort")
+            try:
+                import os
+                ico_path = os.path.join(os.path.dirname(__file__), 'assets', 'app.ico')
+                if os.path.exists(ico_path):
+                    win.iconbitmap(ico_path)
+            except Exception:
+                pass
+            frm = ttk.Frame(win)
+            frm.pack(fill="both", expand=True, padx=10, pady=10)
+            ttk.Label(frm, text="Site:").grid(row=0, column=0, padx=6, pady=4, sticky="w")
+            site_cb = ttk.Combobox(frm, width=20, textvariable=site_var, values=unique_values("name"), state="readonly")
+            site_cb.grid(row=0, column=1, padx=6, pady=4, sticky="w")
+            ttk.Label(frm, text="Size:").grid(row=0, column=2, padx=6, pady=4, sticky="w")
+            size_cb = ttk.Combobox(frm, width=12, textvariable=size_var, values=unique_values("size"), state="readonly")
+            size_cb.grid(row=0, column=3, padx=6, pady=4, sticky="w")
+            ttk.Label(frm, text="Done by:").grid(row=0, column=4, padx=6, pady=4, sticky="w")
+            user_cb = ttk.Combobox(frm, width=14, textvariable=user_var, values=unique_values("created_by"), state="readonly")
+            user_cb.grid(row=0, column=5, padx=6, pady=4, sticky="w")
+            ttk.Label(frm, text="Urgency:").grid(row=0, column=6, padx=6, pady=4, sticky="w")
+            urg_cb = ttk.Combobox(frm, width=10, textvariable=urg_var, values=["All", "Yes", "No"], state="readonly")
+            urg_cb.grid(row=0, column=7, padx=6, pady=4, sticky="w")
+            ttk.Label(frm, text="Month(s) by Date Request:").grid(row=1, column=0, padx=6, pady=4, sticky="w")
+            months_frame = ttk.Frame(frm)
+            months_frame.grid(row=1, column=1, columnspan=3, padx=6, pady=4, sticky="w")
+            for idx, m in enumerate(month_names):
+                r = 0 if idx < 6 else 1
+                c = idx if idx < 6 else idx-6
+                ttk.Checkbutton(months_frame, text=m, variable=month_vars[m]).grid(row=r, column=c, padx=4, pady=2, sticky="w")
+            def select_all_months():
+                for v in month_vars.values(): v.set(True)
+            def clear_all_months():
+                for v in month_vars.values(): v.set(False)
+            ttk.Button(months_frame, text="All", command=select_all_months).grid(row=2, column=0, padx=4, pady=2, sticky="w")
+            ttk.Button(months_frame, text="None", command=clear_all_months).grid(row=2, column=1, padx=4, pady=2, sticky="w")
+            ttk.Label(frm, text="Sort by:").grid(row=1, column=4, padx=6, pady=4, sticky="w")
+            sort_cb = ttk.Combobox(frm, width=22, textvariable=sort_var, state="readonly",
+                values=["Date Request (Newest)", "Date Request (Oldest)", "Module Number (Asc)", "Module Number (Desc)", "Running No (Asc)", "Running No (Desc)"])
+            sort_cb.grid(row=1, column=5, padx=6, pady=4, sticky="w")
+            def on_ok():
+                refresh_tree()
+                win.destroy()
+            ttk.Button(frm, text="OK", command=on_ok).grid(row=2, column=5, padx=6, pady=8, sticky="e")
+            ttk.Button(frm, text="Clear", command=lambda: [site_var.set("All"), size_var.set("All"), user_var.set("All"), urg_var.set("All"), sort_var.set("Date Request (Newest)"), clear_all_months(), refresh_tree()]).grid(row=2, column=4, padx=6, pady=8, sticky="e")
+
+        ttk.Button(frm_btn, text="Filters...", command=open_filters_dialog).pack(side="left", padx=4)
+
+        # Add selectable checkbox column
+        selected_ids = set()
+        columns = ("Select", "ID", "Site Name", "IC", "DC", "Size")
         tree = ttk.Treeview(frm_table, columns=columns, show="headings")
         for col in columns:
             tree.heading(col, text=col)
-            tree.column(col, width=120 if col != "Site Name" else 180)
+            default_w = 120
+            if col == "Select":
+                default_w = 60
+            elif col == "Site Name":
+                default_w = 180
+            tree.column(col, width=default_w)
         tree.pack(fill="both", expand=True)
 
         # Issue fields and state
@@ -330,19 +405,84 @@ def run_gui(
             ttk.Button(container, text="Close", command=win.destroy).grid(row=len(issue_fields)+2, column=0, padx=6, pady=10, sticky="w")
             apply_no_issue_state()
 
+        def get_filtered_boards():
+            data = list_boards()
+            # Site
+            s = site_var.get()
+            if s and s != "All":
+                data = [b for b in data if str(b.get("name")) == s]
+            # Size
+            sz = size_var.get()
+            if sz and sz != "All":
+                data = [b for b in data if str(b.get("size")) == sz]
+            # Done by
+            du = user_var.get()
+            if du and du != "All":
+                data = [b for b in data if str(b.get("created_by")) == du]
+            # Urgency
+            ug = urg_var.get()
+            if ug == "Yes":
+                data = [b for b in data if bool(b.get("urgency", False))]
+            elif ug == "No":
+                data = [b for b in data if not bool(b.get("urgency", False))]
+            # Months by Date Request
+            sel_months = [m for m in month_names if month_vars[m].get()]
+            if sel_months:
+                mindex = {"Jan":1,"Feb":2,"Mar":3,"Apr":4,"May":5,"Jun":6,"Jul":7,"Aug":8,"Sep":9,"Oct":10,"Nov":11,"Dec":12}
+                def dm(b):
+                    d = b.get("date_request")
+                    if not d:
+                        return None
+                    try:
+                        parts = str(d).split("-")
+                        return int(parts[1])
+                    except Exception:
+                        return None
+                sel_nums = {mindex[m] for m in sel_months}
+                data = [b for b in data if dm(b) in sel_nums]
+            # Sort
+            sv = sort_var.get()
+            def keydate(b):
+                import datetime
+                try:
+                    return datetime.datetime.strptime(str(b.get("date_request")), "%Y-%m-%d")
+                except Exception:
+                    return datetime.datetime(1900,1,1)
+            def keyint(b, k):
+                try:
+                    return int(str(b.get(k) or "0"))
+                except Exception:
+                    return 0
+            if sv == "Date Request (Newest)":
+                data.sort(key=keydate, reverse=True)
+            elif sv == "Date Request (Oldest)":
+                data.sort(key=keydate)
+            elif sv == "Module Number (Asc)":
+                data.sort(key=lambda b: keyint(b, "module_number"))
+            elif sv == "Module Number (Desc)":
+                data.sort(key=lambda b: keyint(b, "module_number"), reverse=True)
+            elif sv == "Running No (Asc)":
+                data.sort(key=lambda b: keyint(b, "running_no"))
+            elif sv == "Running No (Desc)":
+                data.sort(key=lambda b: keyint(b, "running_no"), reverse=True)
+            return data
+
         def refresh_tree():
             for i in tree.get_children():
                 tree.delete(i)
-            for b in list_boards():
+            for b in get_filtered_boards():
+                bid = str(b.get("board_id"))
+                chk = "☑" if bid in selected_ids else "☐"
                 tree.insert("", "end", values=(
-                    b.get("board_id"), b.get("name"), b.get("ic"), b.get("dc"), b.get("size")
+                    chk, bid, b.get("name"), b.get("ic"), b.get("dc"), b.get("size")
                 ))
+
 
         # Clear form helper
         def clear_form():
             keys = [
                 "board_id", "name", "ic", "dc", "size",
-                "module_number", "pixel", "board_code", "running_no",
+                "module_number", "board_code", "running_no",
                 "date_request", "do_date", "date_repair"
             ]
             for key in keys:
@@ -370,7 +510,6 @@ def run_gui(
                 "dc": entries["dc"].get().strip(),
                 "size": entries["size"].get().strip(),
                 "module_number": entries.get("module_number").get().strip(),
-                "pixel": entries.get("pixel").get().strip(),
                 "board_code": entries.get("board_code").get().strip(),
                 "running_no": entries.get("running_no").get().strip(),
                 "date_request": entries.get("date_request").get().strip(),
@@ -398,7 +537,7 @@ def run_gui(
                     data["dc"],
                     data["size"],
                     module_number=(data["module_number"] or None),
-                    pixel=(data["pixel"] or None),
+                    pixel=(data["size"] or None),
                     board_code=(data["board_code"] or None),
                     running_no=(data["running_no"] or None),
                     date_request=(data["date_request"] or None),
@@ -416,74 +555,33 @@ def run_gui(
             except Exception as e:
                 messagebox.showerror("Error", str(e))
 
-        def on_update_selected():
-            sel = tree.selection()
-            if not sel:
-                messagebox.showwarning("Select", "Please select a board to edit.")
-                return
-            selected_item = sel[0]
-            selected_values = tree.item(selected_item).get("values", [])
-            selected_id = selected_values[0] if selected_values else None
-            data = _collect_form()
-            # Prefer the selected row's ID; fall back to entry if needed
-            board_id = str(selected_id) if selected_id is not None else data.get("board_id")
-            if not board_id:
-                messagebox.showwarning("Not found", "Selected board no longer exists or ID missing.")
-                return
-            try:
-                existing = find_board_by_id(board_id)
-                if not existing:
-                    messagebox.showwarning("Not found", "Selected board no longer exists.")
-                    return
-                # Ensure the form reflects the ID being edited
-                set_entry_value(entries["board_id"], board_id)
-                # Preserve photos if left empty
-                before_photo = data["before_photo"] or existing.get("before_photo") or None
-                after_photo = data["after_photo"] or existing.get("after_photo") or None
-                # Replace record
-                delete_board(board_id)
-                issues = {k: int(issue_vars[k].get()) for k in issue_fields}
-                if no_issue_var.get():
-                    for k in issue_fields:
-                        issues[k] = 0
-                issues['no_issue'] = bool(no_issue_var.get())
-                issues['total_loss'] = bool(total_loss_var.get())
-                add_board(
-                    board_id,
-                    data["name"],
-                    data["ic"],
-                    data["dc"],
-                    data["size"],
-                    module_number=(data["module_number"] or None),
-                    pixel=(data["pixel"] or None),
-                    board_code=(data["board_code"] or None),
-                    running_no=(data["running_no"] or None),
-                    date_request=(data["date_request"] or None),
-                    do_date=(data["do_date"] or None),
-                    date_repair=(data["date_repair"] or None),
-                    before_photo=before_photo,
-                    after_photo=after_photo,
-                    urgency=data["urgency"],
-                    issues=issues,
-                    created_by=current_user,
-                )
-                refresh_tree()
-                messagebox.showinfo("Updated", f"Board {board_id} updated.")
-            except Exception as e:
-                messagebox.showerror("Error", str(e))
+        # Old inline edit flow removed in favor of pop-up dialog
 
         def on_delete_selected():
-            item = tree.focus()
-            if not item:
-                messagebox.showwarning("Select", "Please select a board to delete.")
+            ids = list(selected_ids)
+            if not ids:
+                # Fallback to focused row if no checkboxes selected
+                item = tree.focus()
+                if not item:
+                    messagebox.showwarning("Select", "Please tick one or more boards to delete.")
+                    return
+                vals = tree.item(item, "values")
+                ids = [str(vals[1])]
+            if not messagebox.askyesno("Confirm Delete", f"Delete {len(ids)} selected board(s)?"):
                 return
-            vals = tree.item(item, "values")
-            board_id = vals[0]
-            if delete_board(board_id):
-                refresh_tree()
-                messagebox.showinfo("Deleted", f"Deleted board ID '{board_id}'.")
+            deleted = 0
+            for bid in ids:
+                try:
+                    if delete_board(str(bid)):
+                        deleted += 1
+                except Exception:
+                    pass
+            selected_ids.clear()
+            refresh_tree()
+            if deleted:
+                messagebox.showinfo("Deleted", f"Deleted {deleted} board(s).")
             else:
-                messagebox.showwarning("Not found", "Board not found.")
+                messagebox.showwarning("Not found", "No boards were deleted.")
 
         def open_view_dialog():
             item = tree.focus()
@@ -491,7 +589,7 @@ def run_gui(
                 messagebox.showwarning("Select", "Please select a board to view.")
                 return
             vals = tree.item(item, "values")
-            board_id = vals[0]
+            board_id = vals[1]
             b = find_board_by_id(board_id)
             if not b:
                 messagebox.showwarning("Not found", "Board not found.")
@@ -648,21 +746,19 @@ def run_gui(
                 return
             vals = tree.item(item, "values")
             entries["board_id"].delete(0, tk.END)
-            entries["board_id"].insert(0, vals[0])
+            entries["board_id"].insert(0, vals[1])
             entries["name"].delete(0, tk.END)
-            entries["name"].insert(0, vals[1])
+            entries["name"].insert(0, vals[2])
             entries["ic"].delete(0, tk.END)
-            entries["ic"].insert(0, vals[2])
+            entries["ic"].insert(0, vals[3])
             entries["dc"].delete(0, tk.END)
-            entries["dc"].insert(0, vals[3])
+            entries["dc"].insert(0, vals[4])
             entries["size"].delete(0, tk.END)
-            entries["size"].insert(0, vals[4])
+            entries["size"].insert(0, vals[5])
             # load issues for this board if available
-            b = find_board_by_id(vals[0])
+            b = find_board_by_id(vals[1])
             if b:
                 # Extended fields
-                entries.get("pixel").delete(0, tk.END)
-                entries.get("pixel").insert(0, b.get("pixel") or "")
                 entries.get("board_code").delete(0, tk.END)
                 entries.get("board_code").insert(0, b.get("board_code") or "")
                 entries.get("module_number").delete(0, tk.END)
@@ -699,10 +795,253 @@ def run_gui(
                 except Exception:
                     total_loss_var.set(False)
 
-        btn_add = ttk.Button(frm_btn, text="Add New", command=on_add_new)
+        def open_add_dialog():
+            win = tk.Toplevel(frm_root)
+            win.title("Add Board")
+            try:
+                import os
+                ico_path = os.path.join(os.path.dirname(__file__), 'assets', 'app.ico')
+                if os.path.exists(ico_path):
+                    win.iconbitmap(ico_path)
+            except Exception:
+                pass
+            frm = ttk.Frame(win)
+            frm.pack(fill="both", expand=True, padx=10, pady=10)
+            entries_local = {}
+            def add_field(label, key, tooltip: str | None = None, is_date=False, is_file=False):
+                r = len(entries_local)
+                ttk.Label(frm, text=label+":").grid(row=r, column=0, sticky="w", padx=6, pady=4)
+                if is_date:
+                    container = ttk.Frame(frm); container.grid(row=r, column=1, sticky="w", padx=6, pady=4)
+                    ent = ttk.Entry(container, width=30); ent.pack(side="left")
+                    def setter(val, e=ent): e.delete(0, tk.END); e.insert(0, val)
+                    ttk.Button(container, text="📅", width=3, command=lambda e=ent: open_date_picker(lambda v: setter(v), ent.get() or None)).pack(side="left", padx=4)
+                elif is_file:
+                    container = ttk.Frame(frm); container.grid(row=r, column=1, sticky="w", padx=6, pady=4)
+                    ent = ttk.Entry(container, width=30); ent.pack(side="left")
+                    def browse(e=ent):
+                        path = filedialog.askopenfilename(title="Select Image", filetypes=[("Images", "*.png;*.jpg;*.jpeg;*.bmp;*.gif"), ("All files", "*.*")])
+                        if path:
+                            e.delete(0, tk.END); e.insert(0, path)
+                    ttk.Button(container, text="Browse", command=browse).pack(side="left", padx=4)
+                else:
+                    ent = ttk.Entry(frm, width=36); ent.grid(row=r, column=1, sticky="w", padx=6, pady=4)
+                entries_local[key] = ent
+                if tooltip:
+                    q = ttk.Label(frm, text="?", width=2, foreground="#555"); q.grid(row=r, column=2, sticky="w"); ToolTip(q, tooltip)
+
+            add_field("Site Name", "name", "Location/site name")
+            add_field("IC", "ic", "Controller IC (e.g., SM1627P)")
+            add_field("DC", "dc", "Driver IC (e.g., 74HC368)")
+            add_field("Size", "size", "Module size (e.g., 64x64)")
+            add_field("Module Number", "module_number", "Module/unit number")
+            add_field("Board Code", "board_code", "Internal board code")
+            # Running number split into two inputs and concatenated on save
+            r = len(entries_local)
+            ttk.Label(frm, text="Running No:").grid(row=r, column=0, sticky="w", padx=6, pady=4)
+            rn_frame = ttk.Frame(frm); rn_frame.grid(row=r, column=1, sticky="w", padx=6, pady=4)
+            ent_rn1 = ttk.Entry(rn_frame, width=12)
+            ent_rn1.pack(side="left")
+            ttk.Label(rn_frame, text=" ").pack(side="left")
+            ent_rn2 = ttk.Entry(rn_frame, width=18)
+            ent_rn2.pack(side="left")
+            entries_local["running_no_p1"] = ent_rn1
+            entries_local["running_no_p2"] = ent_rn2
+            add_field("Date Request", "date_request", is_date=True)
+            add_field("DO Date", "do_date", is_date=True)
+            add_field("Date Repair", "date_repair", is_date=True)
+            add_field("Before Photo", "before_photo", is_file=True)
+            add_field("After Photo", "after_photo", is_file=True)
+            urg_local = tk.BooleanVar(value=False)
+            ttk.Checkbutton(frm, text="Urgency", variable=urg_local).grid(row=len(entries_local), column=0, padx=6, pady=4, sticky="w")
+
+            # Issues local state
+            issue_vars_local = {k: tk.IntVar(value=0) for k in issue_fields}
+            no_issue_local = tk.BooleanVar(value=False)
+            total_loss_local = tk.BooleanVar(value=False)
+            def open_issues_local():
+                win2 = tk.Toplevel(win); win2.title("Issues")
+                container = ttk.Frame(win2); container.pack(fill="both", expand=True, padx=10, pady=10)
+                chk = ttk.Frame(container); chk.grid(row=0, column=0, columnspan=2, sticky="w")
+                def apply_state():
+                    if no_issue_local.get():
+                        for k in issue_fields: issue_vars_local[k].set(0)
+                ttk.Checkbutton(chk, text="No issue", variable=no_issue_local, command=apply_state).pack(side="left", padx=6)
+                ttk.Checkbutton(chk, text="Total loss", variable=total_loss_local).pack(side="left", padx=6)
+                for idx, key in enumerate(issue_fields, start=1):
+                    ttk.Label(container, text=key+":").grid(row=idx, column=0, sticky="w", padx=6, pady=4)
+                    tk.Spinbox(container, from_=0, to=999, width=8, textvariable=issue_vars_local[key]).grid(row=idx, column=1, sticky="w", padx=6, pady=4)
+                ttk.Button(container, text="Close", command=win2.destroy).grid(row=len(issue_fields)+2, column=0, padx=6, pady=10, sticky="w")
+            ttk.Button(frm, text="Issues...", command=open_issues_local).grid(row=len(entries_local)+1, column=0, padx=6, pady=6, sticky="w")
+
+            # Quantity for Add Multiple
+            ttk.Label(frm, text="Quantity:").grid(row=len(entries_local)+2, column=0, padx=6, pady=4, sticky="w")
+            qty_var = tk.IntVar(value=1)
+            tk.Spinbox(frm, from_=1, to=500, width=6, textvariable=qty_var).grid(row=len(entries_local)+2, column=1, padx=6, pady=4, sticky="w")
+
+            def on_ok():
+                data = {k: entries_local[k].get().strip() for k in entries_local}
+                try:
+                    qty = int(qty_var.get() or 1)
+                    if qty < 1: qty = 1
+                except Exception:
+                    qty = 1
+                issues = {k: int(issue_vars_local[k].get()) for k in issue_fields}
+                if no_issue_local.get():
+                    for k in issue_fields: issues[k] = 0
+                issues['no_issue'] = bool(no_issue_local.get())
+                issues['total_loss'] = bool(total_loss_local.get())
+                created = []
+                try:
+                    try:
+                        start_module = int((data.get("module_number") or "0").strip() or "0")
+                    except Exception:
+                        start_module = 0
+                    # Compose running number as concatenation of two inputs (no numeric increment)
+                    rn_const = (data.get("running_no_p1") or "") + (data.get("running_no_p2") or "")
+                    rn_const = rn_const or None
+                    for i in range(qty):
+                        board_id = compute_next_board_id()
+                        mm = str(start_module + i) if start_module or i else (data.get("module_number") or None)
+                        rn = rn_const
+                        add_board(
+                            board_id,
+                            data["name"], data["ic"], data["dc"], data["size"],
+                            module_number=mm,
+                            pixel=(data["size"] or None),
+                            board_code=(data["board_code"] or None),
+                            running_no=rn,
+                            date_request=(data["date_request"] or None),
+                            do_date=(data["do_date"] or None),
+                            date_repair=(data["date_repair"] or None),
+                            before_photo=(data["before_photo"] or None),
+                            after_photo=(data["after_photo"] or None),
+                            urgency=bool(urg_local.get()),
+                            issues=issues,
+                            created_by=current_user,
+                        )
+                        created.append(board_id)
+                    refresh_tree()
+                    messagebox.showinfo("Added", f"Added {len(created)} board(s): {', '.join(map(str, created))}")
+                    win.destroy()
+                except Exception as e:
+                    messagebox.showerror("Error", str(e))
+            ttk.Button(frm, text="OK", command=on_ok).grid(row=len(entries_local)+3, column=1, padx=6, pady=10, sticky="e")
+            ttk.Button(frm, text="Cancel", command=win.destroy).grid(row=len(entries_local)+3, column=0, padx=6, pady=10, sticky="w")
+
+        btn_add = ttk.Button(frm_btn, text="Add...", command=open_add_dialog)
         btn_add.pack(side="left", padx=4)
 
-        btn_edit = ttk.Button(frm_btn, text="Edit Selected", command=on_update_selected)
+        # Add Multiple is available within the Add dialog; remove toolbar version
+
+        def open_edit_dialog():
+            sel = tree.selection()
+            if not sel:
+                messagebox.showwarning("Select", "Please select a board to edit.")
+                return
+            selected_item = sel[0]
+            vals = tree.item(selected_item, "values")
+            board_id = vals[1]
+            existing = find_board_by_id(board_id)
+            if not existing:
+                messagebox.showwarning("Not found", "Selected board no longer exists.")
+                return
+            win = tk.Toplevel(frm_root)
+            win.title(f"Edit Board - {board_id}")
+            try:
+                import os
+                ico_path = os.path.join(os.path.dirname(__file__), 'assets', 'app.ico')
+                if os.path.exists(ico_path):
+                    win.iconbitmap(ico_path)
+            except Exception:
+                pass
+            frm = ttk.Frame(win); frm.pack(fill="both", expand=True, padx=10, pady=10)
+            entries_local = {}
+            def add_field(label, key, val="", is_date=False, is_file=False):
+                r = len(entries_local)
+                ttk.Label(frm, text=label+":").grid(row=r, column=0, sticky="w", padx=6, pady=4)
+                if is_date:
+                    container = ttk.Frame(frm); container.grid(row=r, column=1, sticky="w", padx=6, pady=4)
+                    ent = ttk.Entry(container, width=30); ent.insert(0, val); ent.pack(side="left")
+                    def setter(v, e=ent): e.delete(0, tk.END); e.insert(0, v)
+                    ttk.Button(container, text="📅", width=3, command=lambda e=ent: open_date_picker(lambda v: setter(v), ent.get() or None)).pack(side="left", padx=4)
+                elif is_file:
+                    container = ttk.Frame(frm); container.grid(row=r, column=1, sticky="w", padx=6, pady=4)
+                    ent = ttk.Entry(container, width=30); ent.insert(0, val); ent.pack(side="left")
+                    def browse(e=ent):
+                        path = filedialog.askopenfilename(title="Select Image", filetypes=[("Images", "*.png;*.jpg;*.jpeg;*.bmp;*.gif"), ("All files", "*.*")])
+                        if path:
+                            e.delete(0, tk.END); e.insert(0, path)
+                    ttk.Button(container, text="Browse", command=browse).pack(side="left", padx=4)
+                else:
+                    ent = ttk.Entry(frm, width=36); ent.insert(0, val); ent.grid(row=r, column=1, sticky="w", padx=6, pady=4)
+                entries_local[key] = ent
+            add_field("Site Name", "name", existing.get("name") or "")
+            add_field("IC", "ic", existing.get("ic") or "")
+            add_field("DC", "dc", existing.get("dc") or "")
+            add_field("Size", "size", existing.get("size") or "")
+            add_field("Module Number", "module_number", existing.get("module_number") or "")
+            add_field("Board Code", "board_code", existing.get("board_code") or "")
+            add_field("Running No", "running_no", existing.get("running_no") or "")
+            add_field("Date Request", "date_request", existing.get("date_request") or "", is_date=True)
+            add_field("DO Date", "do_date", existing.get("do_date") or "", is_date=True)
+            add_field("Date Repair", "date_repair", existing.get("date_repair") or "", is_date=True)
+            add_field("Before Photo", "before_photo", existing.get("before_photo") or "", is_file=True)
+            add_field("After Photo", "after_photo", existing.get("after_photo") or "", is_file=True)
+            urg_local = tk.BooleanVar(value=bool(existing.get("urgency", False)))
+            ttk.Checkbutton(frm, text="Urgency", variable=urg_local).grid(row=len(entries_local), column=0, padx=6, pady=4, sticky="w")
+            # Issues local
+            issue_vars_local = {k: tk.IntVar(value=int((existing.get("issues") or {}).get(k, 0))) for k in issue_fields}
+            no_issue_local = tk.BooleanVar(value=bool((existing.get("issues") or {}).get('no_issue', False)))
+            total_loss_local = tk.BooleanVar(value=bool((existing.get("issues") or {}).get('total_loss', False)))
+            def open_issues_local():
+                w2 = tk.Toplevel(win); w2.title("Issues")
+                container = ttk.Frame(w2); container.pack(fill="both", expand=True, padx=10, pady=10)
+                ttk.Checkbutton(container, text="No issue", variable=no_issue_local).grid(row=0, column=0, sticky="w", padx=6, pady=6)
+                ttk.Checkbutton(container, text="Total loss", variable=total_loss_local).grid(row=0, column=1, sticky="w", padx=6, pady=6)
+                for idx, key in enumerate(issue_fields, start=1):
+                    ttk.Label(container, text=key+":").grid(row=idx, column=0, sticky="w", padx=6, pady=4)
+                    tk.Spinbox(container, from_=0, to=999, width=8, textvariable=issue_vars_local[key]).grid(row=idx, column=1, sticky="w", padx=6, pady=4)
+                ttk.Button(container, text="Close", command=w2.destroy).grid(row=len(issue_fields)+2, column=0, padx=6, pady=10, sticky="w")
+            ttk.Button(frm, text="Issues...", command=open_issues_local).grid(row=len(entries_local)+1, column=0, padx=6, pady=6, sticky="w")
+            def on_ok():
+                data = {k: entries_local[k].get().strip() for k in entries_local}
+                try:
+                    existing2 = find_board_by_id(board_id)
+                    if not existing2:
+                        messagebox.showwarning("Not found", "Selected board no longer exists.")
+                        return
+                    before_photo = data["before_photo"] or existing2.get("before_photo") or None
+                    after_photo = data["after_photo"] or existing2.get("after_photo") or None
+                    delete_board(board_id)
+                    issues = {k: int(issue_vars_local[k].get()) for k in issue_fields}
+                    if no_issue_local.get():
+                        for k in issue_fields: issues[k] = 0
+                    issues['no_issue'] = bool(no_issue_local.get())
+                    issues['total_loss'] = bool(total_loss_local.get())
+                    add_board(
+                        board_id,
+                        data["name"], data["ic"], data["dc"], data["size"],
+                        module_number=(data["module_number"] or None),
+                        pixel=(data["size"] or None),
+                        board_code=(data["board_code"] or None),
+                        running_no=(data["running_no"] or None),
+                        date_request=(data["date_request"] or None),
+                        do_date=(data["do_date"] or None),
+                        date_repair=(data["date_repair"] or None),
+                        before_photo=before_photo,
+                        after_photo=after_photo,
+                        urgency=bool(urg_local.get()),
+                        issues=issues,
+                        created_by=current_user,
+                    )
+                    refresh_tree(); messagebox.showinfo("Updated", f"Board {board_id} updated."); win.destroy()
+                except Exception as e:
+                    messagebox.showerror("Error", str(e))
+            ttk.Button(frm, text="OK", command=on_ok).grid(row=len(entries_local)+2, column=1, padx=6, pady=10, sticky="e")
+            ttk.Button(frm, text="Cancel", command=win.destroy).grid(row=len(entries_local)+2, column=0, padx=6, pady=10, sticky="w")
+
+        btn_edit = ttk.Button(frm_btn, text="Edit...", command=open_edit_dialog)
         btn_edit.pack(side="left", padx=4)
 
         btn_view = ttk.Button(frm_btn, text="View", command=open_view_dialog)
@@ -717,16 +1056,22 @@ def run_gui(
         btn_issues = ttk.Button(frm_btn, text="Issues...", command=open_issues_dialog)
         btn_issues.pack(side="left", padx=4)
 
-        # Allow deselect by clicking the same row again
+        # Single handler: toggle only when clicking the first (Select) column
         def on_tree_click(event):
+            col = tree.identify_column(event.x)
             row = tree.identify_row(event.y)
-            cur = tree.focus()
-            if row and cur == row and row in tree.selection():
-                def _clear():
-                    tree.selection_remove(row)
-                    tree.focus("")
-                    clear_form()
-                root.after(1, _clear)
+            if col == "#1" and row:
+                vals = tree.item(row, "values")
+                bid = str(vals[1])
+                # Toggle selection set
+                if bid in selected_ids:
+                    selected_ids.remove(bid)
+                else:
+                    selected_ids.add(bid)
+                new_chk = "☑" if bid in selected_ids else "☐"
+                tree.item(row, values=(new_chk,)+tuple(vals[1:]))
+                return
+            # Ignore clicks on other columns to avoid accidental deselect
         tree.bind("<Button-1>", on_tree_click, add="+")
 
         # Open read-only viewer window
@@ -738,7 +1083,7 @@ def run_gui(
                 messagebox.showerror("Viewer", f"Unable to open viewer: {e}")
         ttk.Button(frm_btn, text="Open Viewer...", command=open_viewer_window).pack(side="right", padx=4)
 
-        tree.bind("<<TreeviewSelect>>", on_select_fill)
+        # No auto-fill into a static form; selection only toggles checkboxes
         refresh_tree()
 
     # Employees tab moved to employees_gui to keep separation of concerns
