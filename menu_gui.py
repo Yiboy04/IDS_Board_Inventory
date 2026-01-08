@@ -2,7 +2,7 @@ import tkinter as tk
 from tkinter import ttk
 
 
-def run_menu(root, open_boards, open_employees, open_viewer=None, role="admin"):
+def run_menu(root, open_boards, open_employees, open_viewer=None, open_quotations=None, logout=None, role="admin"):
     """
     Admin-only menu landing page.
 
@@ -48,10 +48,31 @@ def run_menu(root, open_boards, open_employees, open_viewer=None, role="admin"):
     # Top hero/header
     header = tk.Frame(root, bg=accent)
     header.pack(fill="x")
+    # Left: title and subtitle
+    left_head = tk.Frame(header, bg=accent)
+    left_head.pack(side="left", fill="x", expand=True)
     title_text = "Admin Menu" if role == "admin" else "Menu"
-    tk.Label(header, text=title_text, font=("Segoe UI", 18, "bold"), fg="#ffffff", bg=accent).pack(anchor="w", padx=24, pady=(16, 4))
+    tk.Label(left_head, text=title_text, font=("Segoe UI", 18, "bold"), fg="#ffffff", bg=accent).pack(anchor="w", padx=24, pady=(16, 4))
     subtitle = "Manage boards, employees, and tools" if role == "admin" else "Quick access to add boards"
-    tk.Label(header, text=subtitle, font=("Segoe UI", 10), fg="#e6f3ff", bg=accent).pack(anchor="w", padx=24, pady=(0, 16))
+    tk.Label(left_head, text=subtitle, font=("Segoe UI", 10), fg="#e6f3ff", bg=accent).pack(anchor="w", padx=24, pady=(0, 16))
+    # Right: logout
+    if logout:
+        right_head = tk.Frame(header, bg=accent)
+        right_head.pack(side="right")
+        logout_btn = ttk.Button(right_head, text="Logout", style="Primary.TButton", command=logout)
+        logout_btn.pack(padx=16, pady=12)
+        def _hover_enter(_e=None):
+            try:
+                logout_btn.configure(cursor="hand2")
+            except Exception:
+                pass
+        def _hover_leave(_e=None):
+            try:
+                logout_btn.configure(cursor="")
+            except Exception:
+                pass
+        logout_btn.bind("<Enter>", _hover_enter)
+        logout_btn.bind("<Leave>", _hover_leave)
 
     # Content container
     outer = tk.Frame(root, bg=bg)
@@ -70,7 +91,20 @@ def run_menu(root, open_boards, open_employees, open_viewer=None, role="admin"):
         card.columnconfigure(0, weight=1)
         ttk.Label(card, text=title, font=("Segoe UI", 12, "bold"), background=card_bg).grid(row=0, column=0, sticky="w", padx=12, pady=(12, 4))
         ttk.Label(card, text=desc, style="Section.TLabel", background=card_bg).grid(row=1, column=0, sticky="w", padx=12)
-        ttk.Button(card, text=btn_text, style="Primary.TButton", command=btn_cmd).grid(row=2, column=0, sticky="w", padx=12, pady=(12, 12))
+        action_btn = ttk.Button(card, text=btn_text, style="Primary.TButton", command=btn_cmd)
+        action_btn.grid(row=2, column=0, sticky="w", padx=12, pady=(12, 12))
+        def _hover_enter(_e=None):
+            try:
+                action_btn.configure(cursor="hand2")
+            except Exception:
+                pass
+        def _hover_leave(_e=None):
+            try:
+                action_btn.configure(cursor="")
+            except Exception:
+                pass
+        action_btn.bind("<Enter>", _hover_enter)
+        action_btn.bind("<Leave>", _hover_leave)
 
     # Role-based cards
     col_idx = 0
@@ -93,6 +127,16 @@ def run_menu(root, open_boards, open_employees, open_viewer=None, role="admin"):
             col_idx,
         )
         col_idx += 1
+        if open_quotations:
+            make_card(
+                cards,
+                "Quotations",
+                "Build and export quotations",
+                "Open Quotations",
+                open_quotations,
+                col_idx,
+            )
+            col_idx += 1
         if open_viewer:
             make_card(
                 cards,

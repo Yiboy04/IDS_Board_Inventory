@@ -35,6 +35,29 @@ def run_gui(
     current_user = None
     current_role = None  # 'admin' or 'employee'
 
+    # Global UI styles for a modern look
+    style = ttk.Style(root)
+    try:
+        style.theme_use("clam")
+    except Exception:
+        pass
+    _PRIMARY = "#2563eb"
+    _PRIMARY_DARK = "#1e40af"
+    _ACCENT = "#0ea5e9"
+    _BG = "#f7f7f9"
+    _CARD_BG = "#ffffff"
+    # Labels: ensure backgrounds match the card to avoid grey blocks
+    style.configure("Title.TLabel", font=("Segoe UI", 18, "bold"), background=_CARD_BG, foreground="#111111")
+    style.configure("Subtitle.TLabel", font=("Segoe UI", 10), background=_CARD_BG, foreground="#555555")
+    style.configure("FormLabel.TLabel", font=("Segoe UI", 10), background=_CARD_BG, foreground="#333333")
+    # Card container
+    style.configure("Card.TFrame", background=_CARD_BG, relief="raised", borderwidth=1)
+    # Primary button: switch from grey to blue scheme
+    style.configure("Primary.TButton", font=("Segoe UI", 11), padding=10, background=_PRIMARY, foreground="#ffffff")
+    style.map("Primary.TButton",
+              background=[["active", _PRIMARY_DARK], ["pressed", _PRIMARY_DARK]],
+              foreground=[["active", "#ffffff"], ["pressed", "#ffffff"]]) 
+
     # Data dir helper (mirrors Main._get_data_dir logic)
     def _get_data_dir() -> str:
         try:
@@ -1220,6 +1243,8 @@ def run_gui(
                 open_boards=open_boards_page,
                 open_employees=open_employees_page,
                 open_viewer=open_viewer_page,
+                open_quotations=open_quotations_page,
+                logout=do_logout,
                 role=current_role,
             )
         except Exception:
@@ -1263,6 +1288,24 @@ def run_gui(
         except Exception as e:
             messagebox.showerror("Viewer", f"Unable to open viewer: {e}")
 
+    def open_quotations_page():
+        # Clear window and mount a topbar + body, then render quotations into body
+        for w in root.winfo_children():
+            if isinstance(w, tk.Frame) or isinstance(w, ttk.Frame):
+                w.destroy()
+        container = ttk.Frame(root)
+        container.pack(fill="both", expand=True)
+        topbar = ttk.Frame(container)
+        topbar.pack(fill="x")
+        ttk.Button(topbar, text="Back to Menu", command=back_to_menu).pack(side="left", padx=8, pady=8)
+        body = ttk.Frame(container)
+        body.pack(fill="both", expand=True)
+        try:
+            from quotations_gui import run_quotations as _run_quotations
+            _run_quotations(body, list_boards=list_boards)
+        except Exception as e:
+            messagebox.showerror("Quotations", f"Unable to open quotations: {e}")
+
     def do_login(u: str, p: str):
         nonlocal current_user, current_role
         if u == "admin" and p == "1":
@@ -1278,6 +1321,8 @@ def run_gui(
                     open_boards=open_boards_page,
                     open_employees=open_employees_page,
                     open_viewer=open_viewer_page,
+                    open_quotations=open_quotations_page,
+                    logout=do_logout,
                     role=current_role,
                 )
             except Exception:
@@ -1299,6 +1344,8 @@ def run_gui(
                     open_boards=open_boards_page,
                     open_employees=open_employees_page,
                     open_viewer=open_viewer_page,
+                    open_quotations=open_quotations_page,
+                    logout=do_logout,
                     role=current_role,
                 )
             except Exception:
@@ -1307,27 +1354,67 @@ def run_gui(
         messagebox.showerror("Login failed", "Invalid username or password")
 
     def show_login():
-        frm = ttk.Frame(root)
-        frm.pack(fill="both", expand=True, padx=20, pady=20)
-        ttk.Label(frm, text="Login", font=("Segoe UI", 14, "bold")).pack(anchor="w", pady=10)
-        grid = ttk.Frame(frm)
-        grid.pack(anchor="w")
-        ttk.Label(grid, text="Username:").grid(row=0, column=0, padx=6, pady=6, sticky="w")
-        ent_username = ttk.Entry(grid, width=30)
-        ent_username.grid(row=0, column=1, padx=6, pady=6)
-        ttk.Label(grid, text="Password:").grid(row=1, column=0, padx=6, pady=6, sticky="w")
-        ent_password = ttk.Entry(grid, width=30, show="*")
-        ent_password.grid(row=1, column=1, padx=6, pady=6)
+        # Header
+        header = tk.Frame(root, bg=_ACCENT)
+        header.pack(fill="x")
+        tk.Label(header, text="Welcome", font=("Segoe UI", 18, "bold"), fg="#ffffff", bg=_ACCENT).pack(anchor="w", padx=24, pady=(16, 4))
+        tk.Label(header, text="Sign in to continue", font=("Segoe UI", 10), fg="#e6f3ff", bg=_ACCENT).pack(anchor="w", padx=24, pady=(0, 16))
+
+        # Body
+        outer = tk.Frame(root, bg=_BG)
+        outer.pack(fill="both", expand=True)
+        container = ttk.Frame(outer)
+        container.pack(fill="both", expand=True)
+
+        card = ttk.Frame(container, style="Card.TFrame", padding=16)
+        card.place(relx=0.5, rely=0.5, anchor="center")
+
+        ttk.Label(card, text="Login", style="Title.TLabel").grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 12))
+        ttk.Label(card, text="Please enter your credentials", style="Subtitle.TLabel").grid(row=1, column=0, columnspan=2, sticky="w", pady=(0, 8))
+
+        ttk.Label(card, text="Username:", style="FormLabel.TLabel").grid(row=2, column=0, padx=6, pady=6, sticky="w")
+        ent_username = ttk.Entry(card, width=30)
+        ent_username.grid(row=2, column=1, padx=6, pady=6)
+        ttk.Label(card, text="Password:", style="FormLabel.TLabel").grid(row=3, column=0, padx=6, pady=6, sticky="w")
+        ent_password = ttk.Entry(card, width=30, show="*")
+        ent_password.grid(row=3, column=1, padx=6, pady=6)
+
         def on_login():
             u = ent_username.get().strip()
             p = ent_password.get().strip()
             do_login(u, p)
-        btn = ttk.Button(frm, text="Login", command=on_login)
-        btn.pack(pady=12)
+
+        btn = ttk.Button(card, text="Login", style="Primary.TButton", command=on_login)
+        btn.grid(row=4, column=1, padx=6, pady=(10, 0), sticky="e")
+
+        # Hover effect: change cursor; rely on 'active' style mapping for color
+        def _hover_enter(_e=None):
+            try:
+                btn.configure(cursor="hand2")
+            except Exception:
+                pass
+        def _hover_leave(_e=None):
+            try:
+                btn.configure(cursor="")
+            except Exception:
+                pass
+        btn.bind("<Enter>", _hover_enter)
+        btn.bind("<Leave>", _hover_leave)
+
         ent_username.focus_set()
         # Press Enter to login
         ent_username.bind("<Return>", lambda e: on_login())
         ent_password.bind("<Return>", lambda e: on_login())
+
+    # Logout: clear state and show login
+    def do_logout():
+        nonlocal current_user, current_role
+        current_user = None
+        current_role = None
+        for w in root.winfo_children():
+            if isinstance(w, tk.Frame) or isinstance(w, ttk.Frame):
+                w.destroy()
+        show_login()
 
     show_login()
     root.mainloop()

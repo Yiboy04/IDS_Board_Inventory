@@ -30,7 +30,17 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 .\.venv\Scripts\Activate.ps1
 ```
 
-## 3) Run the application (GUI)
+## 3) Install dependencies
+Excel export and image embedding require these packages:
+```powershell
+./.venv/Scripts/python.exe -m pip install -r requirements.txt
+```
+If you prefer manual install:
+```powershell
+./.venv/Scripts/python.exe -m pip install openpyxl pillow
+```
+
+## 4) Run the application (GUI)
 You can run the GUI directly with the venv Python:
 ```powershell
 .\.venv\Scripts\python.exe Main.py gui
@@ -42,7 +52,7 @@ python Main.py gui
 - Admin login: username `admin`, password `Too@686868`
 - Employees are managed by admin in the Employees tab.
 
-## 4) Optional: App icon setup
+## 5) Optional: App icon setup
 If you have a source image (e.g., a PNG logo), place it at `assets/logo.png`.
 Install Pillow (only needed for icon building):
 ```powershell
@@ -54,7 +64,7 @@ Build an `.ico` with white-background removal:
 ```
 The GUI will use `assets/app.ico` automatically. Packaging steps below can also embed this icon.
 
-## 5) Optional: Desktop shortcut
+## 6) Optional: Desktop shortcut
 Create a Desktop shortcut that launches the GUI with the icon:
 ```powershell
 $shell = New-Object -ComObject WScript.Shell
@@ -74,7 +84,7 @@ Stop-Process -Name explorer -Force
 Start-Process explorer.exe
 ```
 
-## 6) Optional: Build a standalone EXE (distribution)
+## 7) Optional: Build a standalone EXE (distribution)
 Install PyInstaller:
 ```powershell
 .\.venv\Scripts\python.exe -m pip install pyinstaller
@@ -127,7 +137,7 @@ If you want a single setup.exe that installs from GitHub and asks where to store
   - Prompts for install folder and data folder
   - Downloads the project ZIP from GitHub
   - Writes `config.json` with `data_dir`
-  - Creates a venv and installs Pillow (optional)
+  - Creates a venv and installs required packages: `openpyxl` (for Excel export) and `pillow` (for logos)
   - Creates a Desktop shortcut to `pythonw.exe Main.py gui`
 
 Note: The app reads `config.json` to find the `data_dir`. You can relocate data later by editing `config.json`.

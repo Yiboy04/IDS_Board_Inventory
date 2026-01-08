@@ -48,6 +48,7 @@ python Main.py gui
 	- Board Issues dialog to record quantities for common issues (caterpillar, lamp pixel drop/problem, kaki patah, RGB line, box problem, module blackout, broken module/connector/power socket, wiring, broken frame)
 	- Two checkboxes in Issues: "No issue" (zeros all quantities) and "Total loss" (marks the board as fully failed)
 	- "Added by" is recorded for each board (who saved it)
+	- Quotations page: build a quotation list and export to Excel (.xlsx) or CSV. For Excel export, install `openpyxl`.
 
 Notes:
 - The GUI uses Tkinter (included with standard Python on Windows).
@@ -89,6 +90,10 @@ $shortcut.Save()
 ```powershell
 python Main.py gui
 ```
+- Install dependencies (needed for Excel export and logos):
+```powershell
+python -m pip install -r requirements.txt
+```
 - Option 2 (standalone EXE with PyInstaller):
 	1) Install PyInstaller in your venv:
 ```powershell
@@ -114,3 +119,4 @@ C:\\Users\\tehzh\\OneDrive\\Desktop\\Intern\\Project\\.venv\\Scripts\\python.exe
 Notes:
 - `--noconsole` hides the terminal window when launching the GUI.
 - The app stores data next to the executable in the `data` folder.
+ - Excel export uses openpyxl; if missing, the app falls back to CSV.
