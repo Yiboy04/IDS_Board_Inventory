@@ -151,6 +151,8 @@ def add_board(
 	urgency: bool = False,
 	issues: Optional[Dict] = None,
 	created_by: Optional[str] = None,
+	running_no_p1: Optional[str] = None,
+	running_no_p2: Optional[str] = None,
 ) -> Dict:
 	if not all([board_id, name, ic, dc, size]):
 		raise ValueError("All fields are required: board_id, name, ic, dc, size")
@@ -194,6 +196,8 @@ def add_board(
 		"pixel": pixel,
 		"board_code": board_code,
 		"running_no": running_no,
+        "running_no_p1": running_no_p1,
+        "running_no_p2": running_no_p2,
 		"date_request": date_request,
 		"do_date": do_date,
 		"date_repair": date_repair,

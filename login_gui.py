@@ -332,15 +332,29 @@ def run_gui(
 
         # Add selectable checkbox column
         selected_ids = set()
-        columns = ("Select", "ID", "Site Name", "IC", "DC", "Size")
+        columns = ("Select", "Running No Left", "Running No Right", "Site Name", "IC", "DC", "Size")
         tree = ttk.Treeview(frm_table, columns=columns, show="headings")
+        def toggle_select_all():
+            iids = tree.get_children()
+            all_ids = {str(i) for i in iids}
+            if len(selected_ids) == len(all_ids) and len(all_ids) > 0:
+                selected_ids.clear()
+            else:
+                selected_ids.clear()
+                selected_ids.update(all_ids)
+            refresh_tree()
         for col in columns:
-            tree.heading(col, text=col)
+            if col == "Select":
+                tree.heading(col, text=col, command=toggle_select_all)
+            else:
+                tree.heading(col, text=col)
             default_w = 120
             if col == "Select":
                 default_w = 60
             elif col == "Site Name":
                 default_w = 180
+            elif col in {"Running No Left", "Running No Right"}:
+                default_w = 100
             tree.column(col, width=default_w)
         tree.pack(fill="both", expand=True)
 
@@ -402,7 +416,61 @@ def run_gui(
                 sp = tk.Spinbox(container, from_=0, to=999, width=8, textvariable=issue_vars[key])
                 sp.grid(row=idx, column=1, sticky="w", padx=6, pady=4)
                 spin_widgets[key] = sp
-            ttk.Button(container, text="Close", command=win.destroy).grid(row=len(issue_fields)+2, column=0, padx=6, pady=10, sticky="w")
+
+            def apply_to_selected():
+                # Collect issues
+                issues = {k: int(issue_vars[k].get()) for k in issue_fields}
+                if no_issue_var.get():
+                    for k in issue_fields:
+                        issues[k] = 0
+                issues['no_issue'] = bool(no_issue_var.get())
+                issues['total_loss'] = bool(total_loss_var.get())
+                updated = 0
+                for bid in list(selected_ids):
+                    b = find_board_by_id(str(bid))
+                    if not b:
+                        continue
+                    # Preserve photos by passing absolute paths so add_board keeps them relative
+                    base = _get_data_dir()
+                    def abs_or_none(rel):
+                        return os.path.join(base, rel) if rel else None
+                    before_abs = abs_or_none(b.get('before_photo'))
+                    after_abs = abs_or_none(b.get('after_photo'))
+                    try:
+                        delete_board(str(bid))
+                        add_board(
+                            str(bid),
+                            b.get('name') or '',
+                            b.get('ic') or '',
+                            b.get('dc') or '',
+                            b.get('size') or '',
+                            module_number=(b.get('module_number') or None),
+                            pixel=(b.get('pixel') or b.get('size') or None),
+                            board_code=(b.get('board_code') or None),
+                            running_no=(b.get('running_no') or None),
+                            running_no_p1=(b.get('running_no_p1') or None),
+                            running_no_p2=(b.get('running_no_p2') or None),
+                            date_request=(b.get('date_request') or None),
+                            do_date=(b.get('do_date') or None),
+                            date_repair=(b.get('date_repair') or None),
+                            before_photo=before_abs,
+                            after_photo=after_abs,
+                            urgency=bool(b.get('urgency', False)),
+                            issues=issues,
+                            created_by=b.get('created_by') or None,
+                        )
+                        updated += 1
+                    except Exception:
+                        pass
+                refresh_tree()
+                messagebox.showinfo('Issues', f'Applied issues to {updated} board(s).')
+                win.destroy()
+
+            # Buttons
+            btns = ttk.Frame(container)
+            btns.grid(row=len(issue_fields)+2, column=0, columnspan=2, sticky='w', padx=6, pady=10)
+            ttk.Button(btns, text="Apply to Selected", command=apply_to_selected).pack(side='left', padx=6)
+            ttk.Button(btns, text="Close", command=win.destroy).pack(side='left', padx=6)
             apply_no_issue_state()
 
         def get_filtered_boards():
@@ -473,8 +541,13 @@ def run_gui(
             for b in get_filtered_boards():
                 bid = str(b.get("board_id"))
                 chk = "☑" if bid in selected_ids else "☐"
-                tree.insert("", "end", values=(
-                    chk, bid, b.get("name"), b.get("ic"), b.get("dc"), b.get("size")
+                p1 = str(b.get("running_no_p1") or "")
+                p2 = str(b.get("running_no_p2") or "")
+                tree.insert("", "end", iid=bid, values=(
+                    chk,
+                    p1 or "-",
+                    p2 or "-",
+                    b.get("name"), b.get("ic"), b.get("dc"), b.get("size")
                 ))
 
 
@@ -540,6 +613,8 @@ def run_gui(
                     pixel=(data["size"] or None),
                     board_code=(data["board_code"] or None),
                     running_no=(data["running_no"] or None),
+                    running_no_p1=None,
+                    running_no_p2=None,
                     date_request=(data["date_request"] or None),
                     do_date=(data["do_date"] or None),
                     date_repair=(data["date_repair"] or None),
@@ -565,8 +640,8 @@ def run_gui(
                 if not item:
                     messagebox.showwarning("Select", "Please tick one or more boards to delete.")
                     return
-                vals = tree.item(item, "values")
-                ids = [str(vals[1])]
+                # Use the tree item iid as the board_id
+                ids = [str(item)]
             if not messagebox.askyesno("Confirm Delete", f"Delete {len(ids)} selected board(s)?"):
                 return
             deleted = 0
@@ -588,8 +663,7 @@ def run_gui(
             if not item:
                 messagebox.showwarning("Select", "Please select a board to view.")
                 return
-            vals = tree.item(item, "values")
-            board_id = vals[1]
+            board_id = str(item)
             b = find_board_by_id(board_id)
             if not b:
                 messagebox.showwarning("Not found", "Board not found.")
@@ -833,7 +907,7 @@ def run_gui(
             add_field("Site Name", "name", "Location/site name")
             add_field("IC", "ic", "Controller IC (e.g., SM1627P)")
             add_field("DC", "dc", "Driver IC (e.g., 74HC368)")
-            add_field("Size", "size", "Module size (e.g., 64x64)")
+            add_field("Size", "size", "Module size (e.g., P4 64x64)")
             add_field("Module Number", "module_number", "Module/unit number")
             add_field("Board Code", "board_code", "Internal board code")
             # Running number split into two inputs and concatenated on save
@@ -859,19 +933,45 @@ def run_gui(
             issue_vars_local = {k: tk.IntVar(value=0) for k in issue_fields}
             no_issue_local = tk.BooleanVar(value=False)
             total_loss_local = tk.BooleanVar(value=False)
+            # With Mask section state
+            with_mask_vars = {
+                "With casing": tk.IntVar(value=0),
+                "Screw": tk.IntVar(value=0),
+                "Glue": tk.IntVar(value=0),
+            }
             def open_issues_local():
                 win2 = tk.Toplevel(win); win2.title("Issues")
                 container = ttk.Frame(win2); container.pack(fill="both", expand=True, padx=10, pady=10)
-                chk = ttk.Frame(container); chk.grid(row=0, column=0, columnspan=2, sticky="w")
+                chk = ttk.Frame(container); chk.grid(row=0, column=0, columnspan=6, sticky="w")
                 def apply_state():
                     if no_issue_local.get():
                         for k in issue_fields: issue_vars_local[k].set(0)
                 ttk.Checkbutton(chk, text="No issue", variable=no_issue_local, command=apply_state).pack(side="left", padx=6)
                 ttk.Checkbutton(chk, text="Total loss", variable=total_loss_local).pack(side="left", padx=6)
-                for idx, key in enumerate(issue_fields, start=1):
-                    ttk.Label(container, text=key+":").grid(row=idx, column=0, sticky="w", padx=6, pady=4)
-                    tk.Spinbox(container, from_=0, to=999, width=8, textvariable=issue_vars_local[key]).grid(row=idx, column=1, sticky="w", padx=6, pady=4)
-                ttk.Button(container, text="Close", command=win2.destroy).grid(row=len(issue_fields)+2, column=0, padx=6, pady=10, sticky="w")
+                # Alphabetical and 3 per row layout for issues
+                items = sorted(issue_fields, key=lambda s: s.lower())
+                items_frame = ttk.Frame(container)
+                items_frame.grid(row=1, column=0, columnspan=6, sticky="w")
+                cols_per_row = 3
+                for idx, key in enumerate(items):
+                    r = idx // cols_per_row
+                    c = idx % cols_per_row
+                    base_col = c * 2
+                    ttk.Label(items_frame, text=key+":").grid(row=r, column=base_col, sticky="w", padx=6, pady=4)
+                    tk.Spinbox(items_frame, from_=0, to=999, width=8, textvariable=issue_vars_local[key]).grid(row=r, column=base_col+1, sticky="w", padx=6, pady=4)
+
+                # With Mask section
+                mask_frame = ttk.LabelFrame(container, text="With Mask")
+                mask_frame.grid(row=2, column=0, columnspan=6, sticky="w", padx=4, pady=(8, 2))
+                mask_items = ["With casing", "Screw", "Glue"]
+                for idx, label in enumerate(mask_items):
+                    r = idx // 3
+                    c = idx % 3
+                    base_col = c * 2
+                    ttk.Label(mask_frame, text=label+":").grid(row=r, column=base_col, sticky="w", padx=6, pady=4)
+                    tk.Spinbox(mask_frame, from_=0, to=999, width=8, textvariable=with_mask_vars[label]).grid(row=r, column=base_col+1, sticky="w", padx=6, pady=4)
+
+                ttk.Button(container, text="Close", command=win2.destroy).grid(row=3, column=0, padx=6, pady=10, sticky="w")
             ttk.Button(frm, text="Issues...", command=open_issues_local).grid(row=len(entries_local)+1, column=0, padx=6, pady=6, sticky="w")
 
             # Quantity for Add Multiple
@@ -891,6 +991,11 @@ def run_gui(
                     for k in issue_fields: issues[k] = 0
                 issues['no_issue'] = bool(no_issue_local.get())
                 issues['total_loss'] = bool(total_loss_local.get())
+                issues['with_mask'] = {
+                    'with casing': int(with_mask_vars['With casing'].get()),
+                    'screw': int(with_mask_vars['Screw'].get()),
+                    'glue': int(with_mask_vars['Glue'].get()),
+                }
                 created = []
                 try:
                     try:
@@ -911,6 +1016,8 @@ def run_gui(
                             pixel=(data["size"] or None),
                             board_code=(data["board_code"] or None),
                             running_no=rn,
+                            running_no_p1=(data.get("running_no_p1") or None),
+                            running_no_p2=(data.get("running_no_p2") or None),
                             date_request=(data["date_request"] or None),
                             do_date=(data["do_date"] or None),
                             date_repair=(data["date_repair"] or None),
@@ -940,8 +1047,8 @@ def run_gui(
                 messagebox.showwarning("Select", "Please select a board to edit.")
                 return
             selected_item = sel[0]
-            vals = tree.item(selected_item, "values")
-            board_id = vals[1]
+            # selection returns iids; we set iid to board_id
+            board_id = str(selected_item)
             existing = find_board_by_id(board_id)
             if not existing:
                 messagebox.showwarning("Not found", "Selected board no longer exists.")
@@ -1026,6 +1133,8 @@ def run_gui(
                         pixel=(data["size"] or None),
                         board_code=(data["board_code"] or None),
                         running_no=(data["running_no"] or None),
+                        running_no_p1=(existing2.get("running_no_p1") or None),
+                        running_no_p2=(existing2.get("running_no_p2") or None),
                         date_request=(data["date_request"] or None),
                         do_date=(data["do_date"] or None),
                         date_repair=(data["date_repair"] or None),
@@ -1061,14 +1170,15 @@ def run_gui(
             col = tree.identify_column(event.x)
             row = tree.identify_row(event.y)
             if col == "#1" and row:
-                vals = tree.item(row, "values")
-                bid = str(vals[1])
+                # Use the item's iid (board_id)
+                bid = str(row)
                 # Toggle selection set
                 if bid in selected_ids:
                     selected_ids.remove(bid)
                 else:
                     selected_ids.add(bid)
                 new_chk = "☑" if bid in selected_ids else "☐"
+                vals = tree.item(row, "values")
                 tree.item(row, values=(new_chk,)+tuple(vals[1:]))
                 return
             # Ignore clicks on other columns to avoid accidental deselect
@@ -1101,15 +1211,78 @@ def run_gui(
                 delete_employee=delete_employee,
             )
 
+    # Navigation targets for admin menu
+    def back_to_menu():
+        try:
+            from menu_gui import run_menu as _run_menu
+            _run_menu(
+                root,
+                open_boards=open_boards_page,
+                open_employees=open_employees_page,
+                open_viewer=open_viewer_page,
+                role=current_role,
+            )
+        except Exception:
+            show_app()
+
+    def open_boards_page():
+        for w in root.winfo_children():
+            if isinstance(w, tk.Frame) or isinstance(w, ttk.Frame):
+                w.destroy()
+        container = ttk.Frame(root)
+        container.pack(fill="both", expand=True)
+        topbar = ttk.Frame(container)
+        topbar.pack(fill="x")
+        ttk.Button(topbar, text="Back to Menu", command=back_to_menu).pack(side="left", padx=8, pady=8)
+        nb = ttk.Notebook(container)
+        nb.pack(fill="both", expand=True)
+        show_boards_tab(nb)
+
+    def open_employees_page():
+        for w in root.winfo_children():
+            if isinstance(w, tk.Frame) or isinstance(w, ttk.Frame):
+                w.destroy()
+        container = ttk.Frame(root)
+        container.pack(fill="both", expand=True)
+        topbar = ttk.Frame(container)
+        topbar.pack(fill="x")
+        ttk.Button(topbar, text="Back to Menu", command=back_to_menu).pack(side="left", padx=8, pady=8)
+        nb = ttk.Notebook(container)
+        nb.pack(fill="both", expand=True)
+        add_employees_tab(
+            nb,
+            list_employees=list_employees,
+            add_or_update_employee=add_or_update_employee,
+            delete_employee=delete_employee,
+        )
+
+    def open_viewer_page():
+        try:
+            from viewer_gui import run_viewer as _run_viewer
+            _run_viewer(list_boards=list_boards)
+        except Exception as e:
+            messagebox.showerror("Viewer", f"Unable to open viewer: {e}")
+
     def do_login(u: str, p: str):
         nonlocal current_user, current_role
-        if u == "admin" and p == "Too@686868":
+        if u == "admin" and p == "1":
             current_user = u
             current_role = "admin"
             for w in root.winfo_children():
                 if isinstance(w, tk.Frame) or isinstance(w, ttk.Frame):
                     w.destroy()
-            show_app()
+            try:
+                from menu_gui import run_menu as _run_menu
+                _run_menu(
+                    root,
+                    open_boards=open_boards_page,
+                    open_employees=open_employees_page,
+                    open_viewer=open_viewer_page,
+                    role=current_role,
+                )
+            except Exception:
+                # Fallback to full app if menu not available
+                show_app()
             return
         e = find_employee(u)
         if e and e.get("password") == p:
@@ -1118,7 +1291,18 @@ def run_gui(
             for w in root.winfo_children():
                 if isinstance(w, tk.Frame) or isinstance(w, ttk.Frame):
                     w.destroy()
-            show_app()
+            # Non-admin users also see menu with limited options
+            try:
+                from menu_gui import run_menu as _run_menu
+                _run_menu(
+                    root,
+                    open_boards=open_boards_page,
+                    open_employees=open_employees_page,
+                    open_viewer=open_viewer_page,
+                    role=current_role,
+                )
+            except Exception:
+                show_app()
             return
         messagebox.showerror("Login failed", "Invalid username or password")
 
@@ -1141,6 +1325,9 @@ def run_gui(
         btn = ttk.Button(frm, text="Login", command=on_login)
         btn.pack(pady=12)
         ent_username.focus_set()
+        # Press Enter to login
+        ent_username.bind("<Return>", lambda e: on_login())
+        ent_password.bind("<Return>", lambda e: on_login())
 
     show_login()
     root.mainloop()
