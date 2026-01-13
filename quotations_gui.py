@@ -264,6 +264,14 @@ def run_quotations(parent: tk.Widget, list_boards: Callable[[], List[Dict[str, A
         if not rows_to_add:
             messagebox.showinfo("Add", "Select one or more boards to add.")
             return
+        # Enforce max 10 items in the quotation list
+        current = len(tv_quote.get_children())
+        remaining = max(0, 10 - current)
+        if remaining == 0:
+            messagebox.showwarning("Limit reached", "A quotation can only include up to 10 boards.")
+            return
+        if len(rows_to_add) > remaining:
+            rows_to_add = rows_to_add[:remaining]
         for vals in rows_to_add:
             # vals: (chk, bid, site, rn_right, size)
             bid = str(vals[1])
@@ -299,6 +307,7 @@ def run_quotations(parent: tk.Widget, list_boards: Callable[[], List[Dict[str, A
                 ("Modules Code", "modules_code"),
                 ("Total Repair Modules", "total_repair_modules"),
                 ("Date Request (dd/mm/yyyy)", "date_request"),
+                ("Pixel", "pixel"),
             ]
             vars: dict[str, tk.StringVar] = {}
             for r, (label, key) in enumerate(fields):
@@ -327,6 +336,14 @@ def run_quotations(parent: tk.Widget, list_boards: Callable[[], List[Dict[str, A
                 computed_total += int(r[4])
             except Exception:
                 pass
+        # Derive a sensible default for Pixel from the first selected board
+        try:
+            first_bid = rows[0][0]
+            b0 = _get_board_by_id(str(first_bid)) or {}
+            default_pixel = str(b0.get('pixel') or b0.get('size') or '')
+        except Exception:
+            default_pixel = ''
+
         defaults = {
             "quotation_id": "1",
             "project_name": "",
@@ -334,6 +351,7 @@ def run_quotations(parent: tk.Widget, list_boards: Callable[[], List[Dict[str, A
             "modules_code": "",
             "total_repair_modules": str(computed_total or len(rows)),
             "date_request": _dt.date.today().strftime('%d/%m/%Y'),
+            "pixel": default_pixel,
         }
         meta = prompt_meta(defaults)
         if meta is None:
@@ -367,7 +385,9 @@ def run_quotations(parent: tk.Widget, list_boards: Callable[[], List[Dict[str, A
         except Exception as e:
             raise RuntimeError("openpyxl is required for .xlsx export") from e
         wb = Workbook()
-        # Split rows into pages (item rows per page)
+        # Common alignment for table cells
+        align_center = Alignment(horizontal="center", vertical="center")
+        # Split into multiple pages of 10 boards each
         page_size = 10
         pages = [rows[i:i+page_size] for i in range(0, len(rows), page_size)] or [[]]
         from openpyxl.utils import get_column_letter  # type: ignore
@@ -383,17 +403,33 @@ def run_quotations(parent: tk.Widget, list_boards: Callable[[], List[Dict[str, A
             ws.title = f"Page {page_index}"
             # Hide default Excel gridlines to match printed look
             ws.sheet_view.showGridLines = False
+            # Fit to A4 portrait and narrow margins to squeeze content
+            try:
+                ws.page_setup.orientation = 'portrait'
+                ws.page_setup.fitToWidth = 1
+                ws.page_setup.fitToHeight = 0
+            except Exception:
+                pass
+            try:
+                ws.page_margins.left = 0.3
+                ws.page_margins.right = 0.3
+                ws.page_margins.top = 0.5
+                ws.page_margins.bottom = 0.5
+            except Exception:
+                pass
             r = 1
             # Header with optional logo and company title
+            logo_img = None
             if logo_path:
                 try:
                     from openpyxl.drawing.image import Image as XLImage  # type: ignore
                     img = XLImage(logo_path)
-                    img.height = 60
-                    img.width = 100
+                    img.height = 120  # stretch vertically
+                    img.width = 600  # temporary; adjusted after columns are set
                     ws.add_image(img, "A1")
+                    logo_img = img
                 except Exception:
-                    pass
+                    logo_img = None
             # Company name line
             ws.merge_cells(start_row=r, start_column=2, end_row=r, end_column=9)
             c = ws.cell(row=r, column=2, value="IDS BEYOND MEDIA SDN BHD")
@@ -419,77 +455,196 @@ def run_quotations(parent: tk.Widget, list_boards: Callable[[], List[Dict[str, A
             ws.cell(row=r, column=1).alignment = Alignment(horizontal="center")
             r += 2
 
+            # Helper to apply borders to a merged range (outer box)
+            def apply_range_border(r1, c1, r2, c2, border):
+                for rr in range(r1, r2 + 1):
+                    for cc in range(c1, c2 + 1):
+                        ws.cell(row=rr, column=cc).border = border
+
             # Project/Remark boxes
             thin = Side(style="thin", color="000000")
             border_all = Border(left=thin, right=thin, top=thin, bottom=thin)
             # Project name/code on left
             ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=5)
-            ws.cell(row=r, column=1, value=f"Project Name: {meta.get('project_name','')}").border = border_all
+            ws.cell(row=r, column=1, value=f"Project Name: {meta.get('project_name','')}")
+            apply_range_border(r, 1, r, 5, border_all)
             ws.merge_cells(start_row=r, start_column=6, end_row=r, end_column=9)
-            ws.cell(row=r, column=6, value=f"Remark    : Modules Code: {meta.get('modules_code','')}").border = border_all
+            ws.cell(row=r, column=6, value=f"Modules Code: {meta.get('modules_code','')}")
+            apply_range_border(r, 6, r, 9, border_all)
             r += 1
             ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=5)
-            ws.cell(row=r, column=1, value=f"Project Code: {meta.get('project_code','')}").border = border_all
+            ws.cell(row=r, column=1, value=f"Project Code: {meta.get('project_code','')}")
+            apply_range_border(r, 1, r, 5, border_all)
             ws.merge_cells(start_row=r, start_column=6, end_row=r, end_column=9)
-            ws.cell(row=r, column=6, value=f"Total Repair Modules : {meta.get('total_repair_modules','')}pcs").border = border_all
+            ws.cell(row=r, column=6, value=f"Total Repair Modules : {meta.get('total_repair_modules','')}pcs")
+            apply_range_border(r, 6, r, 9, border_all)
             r += 1
 
             # Date Request and Pixel row
             thin = Side(style="thin", color="000000")
             border_all = Border(left=thin, right=thin, top=thin, bottom=thin)
             ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=2)
-            ws.cell(row=r, column=1, value="Date Request").border = border_all
+            ws.cell(row=r, column=1, value="Date Request")
+            apply_range_border(r, 1, r, 2, border_all)
             ws.merge_cells(start_row=r, start_column=3, end_row=r, end_column=5)
-            ws.cell(row=r, column=3, value=meta.get('date_request','')).border = border_all
+            ws.cell(row=r, column=3, value=meta.get('date_request',''))
+            apply_range_border(r, 3, r, 5, border_all)
             ws.merge_cells(start_row=r, start_column=6, end_row=r, end_column=7)
-            ws.cell(row=r, column=6, value="Pixel").border = border_all
+            ws.cell(row=r, column=6, value="Pixel")
+            apply_range_border(r, 6, r, 7, border_all)
             ws.merge_cells(start_row=r, start_column=8, end_row=r, end_column=9)
-            ws.cell(row=r, column=8, value="").border = border_all
+            ws.cell(row=r, column=8, value=meta.get('pixel',''))
+            apply_range_border(r, 8, r, 9, border_all)
             r += 2
 
-            # Table headers styled
-            headers = ["Item", "Module No", "RN No", "Issue", "Quantity"]
+            # Table headers styled with full borders
+            issue_cols = list(issue_fields)
+            # Build a synonym -> canonical issue header map (normalized)
+            import re
+            def _norm(s: str) -> str:
+                return re.sub(r"[^a-z0-9]", "", (s or "").lower())
+            ISSUE_SYNONYM_MAP = {}
+            for hdr in issue_cols:
+                ISSUE_SYNONYM_MAP[_norm(hdr)] = hdr
+                for alt in ISSUE_KEY_MAP.get(hdr, []):
+                    ISSUE_SYNONYM_MAP[_norm(alt)] = hdr
+            def match_issue_name(text: str | None) -> str | None:
+                if not text:
+                    return None
+                n = _norm(text)
+                if n in ISSUE_SYNONYM_MAP:
+                    return ISSUE_SYNONYM_MAP[n]
+                # token/substring fallback
+                for key, hdr in ISSUE_SYNONYM_MAP.items():
+                    if key in n or n in key:
+                        return hdr
+                return None
+            headers = ["Item", "Module No", "RN No"] + issue_cols + ["Quantity"]
             fill_grey = PatternFill("solid", fgColor="DDDDDD")
             start_col = 1
             for idx, h in enumerate(headers):
                 col_idx = start_col + idx
-                ws.cell(row=r, column=col_idx, value=h).font = Font(b=True)
-                ws.cell(row=r, column=col_idx).alignment = Alignment(horizontal="center")
+                ws.cell(row=r, column=col_idx, value=h).font = Font(b=True, size=8)
+                # Wrap long issue headers
+                ws.cell(row=r, column=col_idx).alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
                 ws.cell(row=r, column=col_idx).fill = fill_grey
-                # Only outer borders to reduce column lines
-                header_border = Border(
-                    left=thin if col_idx == start_col else Side(style=None),
-                    right=thin if col_idx == start_col + len(headers) - 1 else Side(style=None),
-                    top=thin,
-                    bottom=thin,
-                )
-                ws.cell(row=r, column=col_idx).border = header_border
-                ws.column_dimensions[get_column_letter(col_idx)].width = 16 if h in ("Issue", "Module No") else 12
+                ws.cell(row=r, column=col_idx).border = border_all
+                if h in ("Module No"):
+                    ws.column_dimensions[get_column_letter(col_idx)].width = 7
+                elif h in ("RN No"):
+                    ws.column_dimensions[get_column_letter(col_idx)].width = 8
+                elif h == "Item":
+                    ws.column_dimensions[get_column_letter(col_idx)].width = 5
+                elif h == "Quantity":
+                    ws.column_dimensions[get_column_letter(col_idx)].width = 8
+                else:
+                    # Issue columns
+                    ws.column_dimensions[get_column_letter(col_idx)].width = 8
+            # Slightly taller header row for readability
+            ws.row_dimensions[r].height = 20
             r += 1
 
-            # Table rows (outer box borders only; remove internal column lines)
-            for idx, v in enumerate(page_rows, start=1 + (page_index-1)*page_size):
-                # v = (Board ID, Module No, RN No, Issue, Quantity)
-                for col_idx, val in enumerate([idx, v[1], v[2], v[3]], start=1):
-                    border = Border(
-                        left=thin if col_idx == start_col else Side(style=None),
-                        right=thin if col_idx == start_col + len(headers) - 1 else Side(style=None),
-                        top=thin,
-                        bottom=thin,
-                    )
-                    ws.cell(row=r, column=col_idx, value=val).border = border
+            # Stretch logo to approximate table width once column widths are known
+            if logo_img is not None:
                 try:
-                    border_q = Border(
-                        left=thin if 5 == start_col else Side(style=None),
-                        right=thin if 5 == start_col + len(headers) - 1 else Side(style=None),
-                        top=thin,
-                        bottom=thin,
-                    )
-                    ws.cell(row=r, column=5, value=int(v[4])).border = border_q
+                    end_col = 3 + len(issue_cols) + 1
+                    total_chars = 0.0
+                    for c in range(1, end_col + 1):
+                        w = ws.column_dimensions[get_column_letter(c)].width or 8
+                        total_chars += float(w)
+                    # Approximate pixel width from Excel character width
+                    logo_img.width = int(total_chars * 7)
                 except Exception:
-                    ws.cell(row=r, column=5, value=v[4]).border = border_q
+                    pass
+
+            # Table rows: always render 10 lines with full borders
+            max_rows = page_size
+            for i in range(max_rows):
+                if i < len(page_rows):
+                    v = page_rows[i]
+                    item_no = (page_index-1)*page_size + i + 1
+                    issue_val = str(v[3]).strip()
+                    qty_val = v[4]
+                else:
+                    issue_val = ""
+                    qty_val = ""
+                # First three base columns
+                # Module No column: use Project Code from meta instead of board module number
+                module_cell = str(meta.get('project_code', '')).strip() if i < len(page_rows) else ""
+                if not module_cell and i < len(page_rows):
+                    module_cell = (page_rows[i][1] if i < len(page_rows) else "")
+                base_vals = [item_no if i < len(page_rows) else "", module_cell, (page_rows[i][2] if i < len(page_rows) else "")]
+                for off, val in enumerate(base_vals):
+                    c = ws.cell(row=r, column=1+off, value=val)
+                    c.border = border_all
+                    c.alignment = align_center
+                # Issue columns: prefer board counts if present (supports nested 'issues' dict); else use row Issue selection
+                canon = match_issue_name(issue_val)
+                # Build normalized board field map once per row
+                b_norm_map = {}
+                if i < len(page_rows):
+                    bid_row = str(page_rows[i][0])
+                    b_row = _get_board_by_id(bid_row) or {}
+                    def _flatten(prefix, obj):
+                        if isinstance(obj, dict):
+                            for k, v in obj.items():
+                                key = _norm((prefix + '_' + str(k)) if prefix else str(k))
+                                b_norm_map[key] = v
+                                _flatten(key, v)
+                        # ignore lists; no expected structure
+                    _flatten('', b_row)
+                for j, issue_name in enumerate(issue_cols):
+                    col_idx = 4 + j
+                    # Try board-provided count first
+                    val = None
+                    aliases = ISSUE_KEY_MAP.get(issue_name, [])
+                    # Also include the header itself as an alias
+                    aliases = list(aliases) + [issue_name]
+                    for alias in aliases:
+                        nk = _norm(alias)
+                        if nk in b_norm_map and b_norm_map.get(nk) not in (None, ""):
+                            val = b_norm_map[nk]
+                            break
+                    # If still None, try any key containing the alias token
+                    if val is None:
+                        for bk, bv in b_norm_map.items():
+                            if nk in bk and bv not in (None, ""):
+                                val = bv
+                                break
+                    # Coerce numeric if possible
+                    try:
+                        val_num = int(val)
+                    except Exception:
+                        val_num = None
+                    if val_num is not None and val_num != 0:
+                        cell_val = val_num
+                    else:
+                        # Fall back to row Issue selection
+                        try:
+                            qn = int(qty_val)
+                        except Exception:
+                            qn = qty_val
+                        cell_val = (qn if (canon == issue_name and qn not in (None, "", 0)) else "")
+                    c = ws.cell(row=r, column=col_idx, value=cell_val)
+                    c.border = border_all
+                    c.font = Font(size=6.5)
+                    c.alignment = align_center
+                try:
+                    # Final Quantity column
+                    qv = int(qty_val) if str(qty_val).isdigit() else qty_val
+                    c = ws.cell(row=r, column=3 + len(issue_cols) + 1, value=qv)
+                    c.border = border_all
+                    c.font = Font(size=6.5)
+                    c.alignment = align_center
+                except Exception:
+                    c = ws.cell(row=r, column=3 + len(issue_cols) + 1, value=qty_val)
+                    c.border = border_all
+                    c.font = Font(size=6.5)
+                    c.alignment = align_center
+                # Reduce row height to fit more vertically
+                ws.row_dimensions[r].height = 12
                 r += 1
-            # Totals row (Total Repair Modules)
+            # Totals row (Total Repair Modules) with full-width border
             try:
                 total_qty = int(meta.get('total_repair_modules'))
             except Exception:
@@ -499,12 +654,85 @@ def run_quotations(parent: tk.Widget, list_boards: Callable[[], List[Dict[str, A
                         total_qty += int(v[4])
                     except Exception:
                         pass
-            ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=4)
+            # Merge up to last column before Quantity
+            end_merge_col = 3 + len(issue_cols)
+            ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=end_merge_col)
             ws.cell(row=r, column=1, value="Total Repair Modules (pcs)").font = Font(b=True)
             ws.cell(row=r, column=1).alignment = Alignment(horizontal="right")
-            ws.cell(row=r, column=1).border = border_all
-            ws.cell(row=r, column=5, value=total_qty).font = Font(b=True)
-            ws.cell(row=r, column=5).border = border_all
+            # Apply borders across merged range and qty cell
+            for c in range(1, end_merge_col + 2):
+                ws.cell(row=r, column=c).border = border_all
+            ws.cell(row=r, column=end_merge_col + 1, value=total_qty).font = Font(b=True)
+            r += 2
+
+            # Price summary block (separate table): full-width labels + value on last column
+            medium = Side(style="medium", color="000000")
+            def _border_for(rc, cc, last_row, last_col):
+                top = medium if rc == r else thin
+                bottom = medium if rc == last_row else thin
+                left = medium if cc == 1 else thin
+                right = medium if cc == last_col else thin
+                return Border(left=left, right=right, top=top, bottom=bottom)
+            labels = [
+                "Total Repair Price (RM)",
+                "Labour Charges to dismantle, reinstall & configuration works (RM)",
+                "Total Amount (RM)",
+            ]
+            last_col = end_merge_col + 1
+            for idx, label in enumerate(labels):
+                rr = r + idx
+                # Merge label across all columns except the last (value column)
+                ws.merge_cells(start_row=rr, start_column=1, end_row=rr, end_column=end_merge_col)
+                ws.cell(row=rr, column=1, value=label)
+                if idx in (0, 2):
+                    ws.cell(row=rr, column=1).font = Font(b=True)
+                ws.cell(row=rr, column=1).alignment = Alignment(horizontal="left")
+                # Apply borders to each cell in block row across full width
+                for c in range(1, last_col + 1):
+                    ws.cell(row=rr, column=c).border = _border_for(rr, c, r + len(labels) - 1, last_col)
+            r += 3
+
+            # Textual Remark section (replicating provided sample)
+            try:
+                # "Remark:" label
+                ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=last_col)
+                ws.cell(row=r, column=1, value="Remark:").font = Font(b=True, size=10)
+                ws.cell(row=r, column=1).alignment = Alignment(horizontal="left")
+                r += 1
+                # Notice text
+                ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=last_col)
+                ws.cell(row=r, column=1, value="** Please Notice that above information is just an estimate cost of repair & rework for Led Modules.")
+                ws.cell(row=r, column=1).alignment = Alignment(horizontal="left")
+                ws.row_dimensions[r].height = 18
+                r += 2
+                # Authorized by (left) and Date (right) on same row
+                # Place date closer to middle-right (not far right)
+                start_c = max(1, last_col - 6)
+                end_c = max(start_c + 2, last_col - 2)
+                left_end_col = max(1, start_c - 1)
+                ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=left_end_col)
+                ws.cell(row=r, column=1, value="Authorized  by :")
+                ws.cell(row=r, column=1).alignment = Alignment(horizontal="left")
+                # Date label aligned on right of the same row
+                ws.merge_cells(start_row=r, start_column=start_c, end_row=r, end_column=end_c)
+                ws.cell(row=r, column=start_c, value="Date:")
+                ws.cell(row=r, column=start_c).alignment = Alignment(horizontal="right")
+                r += 2
+                # Signature line (top medium border across a few columns)
+                sig_start_col = 1
+                sig_end_col = max(4, min(6, last_col))
+                for cc in range(sig_start_col, sig_end_col + 1):
+                    ws.cell(row=r, column=cc).border = Border(top=medium)
+                ws.row_dimensions[r].height = 12
+                r += 1
+                # Team label
+                ws.cell(row=r, column=1, value="Repair & Rework Team")
+                ws.cell(row=r, column=1).alignment = Alignment(horizontal="left")
+                r += 2
+                # Spacer row after team line
+                r += 1
+            except Exception:
+                pass
         wb.save(path)
 
     def export_to_csv(path: str, rows, meta: dict):
@@ -551,18 +779,42 @@ def run_quotations(parent: tk.Widget, list_boards: Callable[[], List[Dict[str, A
     # Simple in-place editing for Issue and Quantity
     issue_fields = (
         "caterpillar",
-        "lamp pixel drop",
-        "lamp pixel problem",
+        "pixel drop",
+        "pixel problem",
         "kaki patah",
         "green/red/blue line",
         "box problem",
-        "half/whole module blackout",
+        "module blackout",
         "broken module",
         "broken connector",
         "broken power socket",
         "wiring",
         "broken frame",
     )
+    # Mapping of issue header to possible board keys (normalized)
+    ISSUE_KEY_MAP = {
+        "caterpillar": ["caterpillar"],
+        "pixel drop": ["lamp_pixel_drop", "pixel_drop"],
+        "pixel problem": ["lamp_pixel_problem", "pixel_problem"],
+        "kaki patah": ["kakipatah", "kaki_patah"],
+        "green/red/blue line": [
+            "green/red/blue line",
+            "greenredblueline",
+            "anomalyline",
+            "line_issue",
+            "rgb_line",
+            "grb_line",
+            "rgbline",
+            "grbline",
+        ],
+        "box problem": ["boxproblem"],
+        "module blackout": ["moduleblackout", "halfwholemoduleblackout"],
+        "broken module": ["brokenmodule"],
+        "broken connector": ["brokenconnector"],
+        "broken power socket": ["brokenpowersocket"],
+        "wiring": ["wiring"],
+        "broken frame": ["brokenframe"],
+    }
 
     def begin_edit(event):
         iid = tv_quote.identify_row(event.y)
