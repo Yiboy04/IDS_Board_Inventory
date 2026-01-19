@@ -264,14 +264,6 @@ def run_quotations(parent: tk.Widget, list_boards: Callable[[], List[Dict[str, A
         if not rows_to_add:
             messagebox.showinfo("Add", "Select one or more boards to add.")
             return
-        # Enforce max 10 items in the quotation list
-        current = len(tv_quote.get_children())
-        remaining = max(0, 10 - current)
-        if remaining == 0:
-            messagebox.showwarning("Limit reached", "A quotation can only include up to 10 boards.")
-            return
-        if len(rows_to_add) > remaining:
-            rows_to_add = rows_to_add[:remaining]
         for vals in rows_to_add:
             # vals: (chk, bid, site, rn_right, size)
             bid = str(vals[1])
@@ -398,35 +390,53 @@ def run_quotations(parent: tk.Widget, list_boards: Callable[[], List[Dict[str, A
             os.path.join(os.path.dirname(__file__), 'assets', 'logo.jpg'),
         ]
         logo_path = next((p for p in logo_path_candidates if os.path.exists(p)), None)
+        # Create a single sheet with all tables stacked vertically
+        ws = wb.active
+        ws.title = "Quotation"
+        # Hide default Excel gridlines to match printed look
+        ws.sheet_view.showGridLines = False
+        # Fit to A4 portrait and narrow margins to squeeze content
+        try:
+            ws.page_setup.orientation = 'portrait'
+            ws.page_setup.fitToWidth = 1
+            ws.page_setup.fitToHeight = 0
+        except Exception:
+            pass
+        try:
+            ws.page_margins.left = 0.3
+            ws.page_margins.right = 0.3
+            ws.page_margins.top = 0.5
+            ws.page_margins.bottom = 0.5
+        except Exception:
+            pass
+
+        # Helper to apply borders to a merged range (outer box)
+        def apply_range_border(r1, c1, r2, c2, border):
+            for rr in range(r1, r2 + 1):
+                for cc in range(c1, c2 + 1):
+                    ws.cell(row=rr, column=cc).border = border
+
+        thin = Side(style="thin", color="000000")
+        border_all = Border(left=thin, right=thin, top=thin, bottom=thin)
+        
         for page_index, page_rows in enumerate(pages, start=1):
-            ws = wb.active if page_index == 1 else wb.create_sheet()
-            ws.title = f"Page {page_index}"
-            # Hide default Excel gridlines to match printed look
-            ws.sheet_view.showGridLines = False
-            # Fit to A4 portrait and narrow margins to squeeze content
-            try:
-                ws.page_setup.orientation = 'portrait'
-                ws.page_setup.fitToWidth = 1
-                ws.page_setup.fitToHeight = 0
-            except Exception:
-                pass
-            try:
-                ws.page_margins.left = 0.3
-                ws.page_margins.right = 0.3
-                ws.page_margins.top = 0.5
-                ws.page_margins.bottom = 0.5
-            except Exception:
-                pass
-            r = 1
-            # Header with optional logo and company title
+            # Start position for this table
+            if page_index == 1:
+                r = 1
+                table_start_row = r
+            else:
+                table_start_row = ws.max_row + 1
+                r = table_start_row
+            
+            # Add logo and company info to every table
             logo_img = None
             if logo_path:
                 try:
                     from openpyxl.drawing.image import Image as XLImage  # type: ignore
                     img = XLImage(logo_path)
-                    img.height = 120  # stretch vertically
-                    img.width = 600  # temporary; adjusted after columns are set
-                    ws.add_image(img, "A1")
+                    img.height = 80  # reduced height
+                    img.width = 400  # temporary; adjusted after column widths are set
+                    ws.add_image(img, f"A{r}")
                     logo_img = img
                 except Exception:
                     logo_img = None
@@ -434,68 +444,112 @@ def run_quotations(parent: tk.Widget, list_boards: Callable[[], List[Dict[str, A
             ws.merge_cells(start_row=r, start_column=2, end_row=r, end_column=9)
             c = ws.cell(row=r, column=2, value="IDS BEYOND MEDIA SDN BHD")
             c.font = Font(b=True, size=14)
+            # Set row heights to accommodate logo
+            for logo_r in range(r, r + 2):
+                ws.row_dimensions[logo_r].height = 30
             r += 1
             # Optional address line (simple placeholder to mimic layout)
             ws.merge_cells(start_row=r, start_column=2, end_row=r, end_column=9)
             ws.cell(row=r, column=2, value="Website: www.megascreen.com.my   Tel: 601-657 3233   Fax: 604-656 1318")
             r += 2
-            # Quotation meta (box on the right)
-            ws.merge_cells(start_row=r, start_column=7, end_row=r, end_column=9)
-            ws.cell(row=r, column=7, value=f"QUOTATION NO: {meta.get('quotation_id','')}").font = Font(b=True)
-            r += 1
-            ws.merge_cells(start_row=r, start_column=7, end_row=r, end_column=9)
-            ws.cell(row=r, column=7, value=f"Date: {_dt.date.today().strftime('%d-%b-%y')}")
-            r += 1
-            ws.merge_cells(start_row=r, start_column=7, end_row=r, end_column=9)
-            ws.cell(row=r, column=7, value=f"Page: {page_index}/{len(pages)}")
-            r += 2
-            # Title centered
-            ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=9)
-            ws.cell(row=r, column=1, value="QUOTATION").font = Font(b=True, size=12)
-            ws.cell(row=r, column=1).alignment = Alignment(horizontal="center")
-            r += 2
 
-            # Helper to apply borders to a merged range (outer box)
-            def apply_range_border(r1, c1, r2, c2, border):
-                for rr in range(r1, r2 + 1):
-                    for cc in range(c1, c2 + 1):
-                        ws.cell(row=rr, column=cc).border = border
+            # Only add metadata on the very first page
+            if page_index == 1:
+                # Quotation meta (box on the right)
+                ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=9)
+                ws.cell(row=r, column=1, value=f"QUOTATION NO: {meta.get('quotation_id','')}").font = Font(b=True)
+                r += 1
+                ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=9)
+                ws.cell(row=r, column=1, value=f"Date: {_dt.date.today().strftime('%d-%b-%y')}")
+                r += 1
+                ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=9)
+                ws.cell(row=r, column=1, value=f"Page: {page_index} of {len(pages)}")
+                r += 2
+                # Title centered
+                ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=9)
+                ws.cell(row=r, column=1, value="QUOTATION").font = Font(b=True, size=12)
+                ws.cell(row=r, column=1).alignment = Alignment(horizontal="center")
+                r += 2
 
-            # Project/Remark boxes
-            thin = Side(style="thin", color="000000")
-            border_all = Border(left=thin, right=thin, top=thin, bottom=thin)
-            # Project name/code on left
-            ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=5)
-            ws.cell(row=r, column=1, value=f"Project Name: {meta.get('project_name','')}")
-            apply_range_border(r, 1, r, 5, border_all)
-            ws.merge_cells(start_row=r, start_column=6, end_row=r, end_column=9)
-            ws.cell(row=r, column=6, value=f"Modules Code: {meta.get('modules_code','')}")
-            apply_range_border(r, 6, r, 9, border_all)
-            r += 1
-            ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=5)
-            ws.cell(row=r, column=1, value=f"Project Code: {meta.get('project_code','')}")
-            apply_range_border(r, 1, r, 5, border_all)
-            ws.merge_cells(start_row=r, start_column=6, end_row=r, end_column=9)
-            ws.cell(row=r, column=6, value=f"Total Repair Modules : {meta.get('total_repair_modules','')}pcs")
-            apply_range_border(r, 6, r, 9, border_all)
-            r += 1
+                # Project/Remark boxes
+                ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=5)
+                ws.cell(row=r, column=1, value=f"Project Name: {meta.get('project_name','')}")
+                apply_range_border(r, 1, r, 5, border_all)
+                ws.merge_cells(start_row=r, start_column=6, end_row=r, end_column=9)
+                ws.cell(row=r, column=6, value=f"Modules Code: {meta.get('modules_code','')}")
+                apply_range_border(r, 6, r, 9, border_all)
+                r += 1
+                ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=5)
+                ws.cell(row=r, column=1, value=f"Project Code: {meta.get('project_code','')}")
+                apply_range_border(r, 1, r, 5, border_all)
+                ws.merge_cells(start_row=r, start_column=6, end_row=r, end_column=9)
+                ws.cell(row=r, column=6, value=f"Total Repair Modules : {meta.get('total_repair_modules','')}pcs")
+                apply_range_border(r, 6, r, 9, border_all)
+                r += 1
 
-            # Date Request and Pixel row
-            thin = Side(style="thin", color="000000")
-            border_all = Border(left=thin, right=thin, top=thin, bottom=thin)
-            ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=2)
-            ws.cell(row=r, column=1, value="Date Request")
-            apply_range_border(r, 1, r, 2, border_all)
-            ws.merge_cells(start_row=r, start_column=3, end_row=r, end_column=5)
-            ws.cell(row=r, column=3, value=meta.get('date_request',''))
-            apply_range_border(r, 3, r, 5, border_all)
-            ws.merge_cells(start_row=r, start_column=6, end_row=r, end_column=7)
-            ws.cell(row=r, column=6, value="Pixel")
-            apply_range_border(r, 6, r, 7, border_all)
-            ws.merge_cells(start_row=r, start_column=8, end_row=r, end_column=9)
-            ws.cell(row=r, column=8, value=meta.get('pixel',''))
-            apply_range_border(r, 8, r, 9, border_all)
-            r += 2
+                # Date Request and Pixel row
+                ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=2)
+                ws.cell(row=r, column=1, value="Date Request")
+                apply_range_border(r, 1, r, 2, border_all)
+                ws.merge_cells(start_row=r, start_column=3, end_row=r, end_column=5)
+                ws.cell(row=r, column=3, value=meta.get('date_request',''))
+                apply_range_border(r, 3, r, 5, border_all)
+                ws.merge_cells(start_row=r, start_column=6, end_row=r, end_column=7)
+                ws.cell(row=r, column=6, value="Pixel")
+                apply_range_border(r, 6, r, 7, border_all)
+                ws.merge_cells(start_row=r, start_column=8, end_row=r, end_column=9)
+                ws.cell(row=r, column=8, value=meta.get('pixel',''))
+                apply_range_border(r, 8, r, 9, border_all)
+                r += 2
+            else:
+                # For subsequent tables, skip the metadata block and go straight to table headers
+                # Add quotation metadata (QUOTATION NO, Date, Page) to subsequent tables
+                ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=9)
+                ws.cell(row=r, column=1, value=f"QUOTATION NO: {meta.get('quotation_id','')}")
+                r += 1
+                ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=9)
+                ws.cell(row=r, column=1, value=f"Date: {_dt.date.today().strftime('%d-%b-%y')}")
+                r += 1
+                ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=9)
+                ws.cell(row=r, column=1, value=f"Page: {page_index} of {len(pages)}")
+                r += 2
+                
+                # Add "QUOTATION" title for consistency
+                ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=9)
+                ws.cell(row=r, column=1, value="QUOTATION").font = Font(b=True, size=12)
+                ws.cell(row=r, column=1).alignment = Alignment(horizontal="center")
+                r += 2
+                
+                # Project metadata block (same as first table) for subsequent tables
+                ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=5)
+                ws.cell(row=r, column=1, value=f"Project Name: {meta.get('project_name','')}")
+                apply_range_border(r, 1, r, 5, border_all)
+                ws.merge_cells(start_row=r, start_column=6, end_row=r, end_column=9)
+                ws.cell(row=r, column=6, value=f"Modules Code: {meta.get('modules_code','')}")
+                apply_range_border(r, 6, r, 9, border_all)
+                r += 1
+                ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=5)
+                ws.cell(row=r, column=1, value=f"Project Code: {meta.get('project_code','')}")
+                apply_range_border(r, 1, r, 5, border_all)
+                ws.merge_cells(start_row=r, start_column=6, end_row=r, end_column=9)
+                ws.cell(row=r, column=6, value=f"Total Repair Modules : {meta.get('total_repair_modules','')}pcs")
+                apply_range_border(r, 6, r, 9, border_all)
+                r += 1
+
+                # Date Request and Pixel row
+                ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=2)
+                ws.cell(row=r, column=1, value="Date Request")
+                apply_range_border(r, 1, r, 2, border_all)
+                ws.merge_cells(start_row=r, start_column=3, end_row=r, end_column=5)
+                ws.cell(row=r, column=3, value=meta.get('date_request',''))
+                apply_range_border(r, 3, r, 5, border_all)
+                ws.merge_cells(start_row=r, start_column=6, end_row=r, end_column=7)
+                ws.cell(row=r, column=6, value="Pixel")
+                apply_range_border(r, 6, r, 7, border_all)
+                ws.merge_cells(start_row=r, start_column=8, end_row=r, end_column=9)
+                ws.cell(row=r, column=8, value=meta.get('pixel',''))
+                apply_range_border(r, 8, r, 9, border_all)
+                r += 2
 
             # Table headers styled with full borders
             issue_cols = list(issue_fields)
@@ -524,6 +578,9 @@ def run_quotations(parent: tk.Widget, list_boards: Callable[[], List[Dict[str, A
             start_col = 1
             for idx, h in enumerate(headers):
                 col_idx = start_col + idx
+                # Limit to column Q (17)
+                if col_idx > 17:
+                    break
                 ws.cell(row=r, column=col_idx, value=h).font = Font(b=True, size=8)
                 # Wrap long issue headers
                 ws.cell(row=r, column=col_idx).alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
@@ -663,52 +720,25 @@ def run_quotations(parent: tk.Widget, list_boards: Callable[[], List[Dict[str, A
             for c in range(1, end_merge_col + 2):
                 ws.cell(row=r, column=c).border = border_all
             ws.cell(row=r, column=end_merge_col + 1, value=total_qty).font = Font(b=True)
-            r += 2
-
-            # Price summary block (separate table): full-width labels + value on last column
-            medium = Side(style="medium", color="000000")
-            def _border_for(rc, cc, last_row, last_col):
-                top = medium if rc == r else thin
-                bottom = medium if rc == last_row else thin
-                left = medium if cc == 1 else thin
-                right = medium if cc == last_col else thin
-                return Border(left=left, right=right, top=top, bottom=bottom)
-            labels = [
-                "Total Repair Price (RM)",
-                "Labour Charges to dismantle, reinstall & configuration works (RM)",
-                "Total Amount (RM)",
-            ]
-            last_col = end_merge_col + 1
-            for idx, label in enumerate(labels):
-                rr = r + idx
-                # Merge label across all columns except the last (value column)
-                ws.merge_cells(start_row=rr, start_column=1, end_row=rr, end_column=end_merge_col)
-                ws.cell(row=rr, column=1, value=label)
-                if idx in (0, 2):
-                    ws.cell(row=rr, column=1).font = Font(b=True)
-                ws.cell(row=rr, column=1).alignment = Alignment(horizontal="left")
-                # Apply borders to each cell in block row across full width
-                for c in range(1, last_col + 1):
-                    ws.cell(row=rr, column=c).border = _border_for(rr, c, r + len(labels) - 1, last_col)
             r += 3
 
             # Textual Remark section (replicating provided sample)
             try:
+                medium = Side(style="medium", color="000000")
                 # "Remark:" label
-                ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=last_col)
+                ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=17)
                 ws.cell(row=r, column=1, value="Remark:").font = Font(b=True, size=10)
                 ws.cell(row=r, column=1).alignment = Alignment(horizontal="left")
                 r += 1
                 # Notice text
-                ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=last_col)
+                ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=17)
                 ws.cell(row=r, column=1, value="** Please Notice that above information is just an estimate cost of repair & rework for Led Modules.")
                 ws.cell(row=r, column=1).alignment = Alignment(horizontal="left")
                 ws.row_dimensions[r].height = 18
                 r += 2
                 # Authorized by (left) and Date (right) on same row
-                # Place date closer to middle-right (not far right)
-                start_c = max(1, last_col - 6)
-                end_c = max(start_c + 2, last_col - 2)
+                start_c = max(1, 17 - 6)
+                end_c = max(start_c + 2, 17 - 2)
                 left_end_col = max(1, start_c - 1)
                 ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=left_end_col)
                 ws.cell(row=r, column=1, value="Authorized  by :")
@@ -720,7 +750,7 @@ def run_quotations(parent: tk.Widget, list_boards: Callable[[], List[Dict[str, A
                 r += 2
                 # Signature line (top medium border across a few columns)
                 sig_start_col = 1
-                sig_end_col = max(4, min(6, last_col))
+                sig_end_col = max(4, min(6, 17))
                 for cc in range(sig_start_col, sig_end_col + 1):
                     ws.cell(row=r, column=cc).border = Border(top=medium)
                 ws.row_dimensions[r].height = 12
